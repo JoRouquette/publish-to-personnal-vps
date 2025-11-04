@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../dist/obsidian-plugin",
+    "declaration": true,
+
+    "baseUrl": "..",
+    "paths": {
+      "@publish-to-personnal-vps/core-publishing": [
+        "core-publishing/src/index.ts"
+      ]
+    }
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/*.spec.ts", "**/*.test.ts"]
+}
