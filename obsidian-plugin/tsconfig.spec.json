@@ -6,7 +6,7 @@
 
     "baseUrl": "..",
     "paths": {
-      "@publish-to-personnal-vps/core-publishing": [
+      "@publish-to-personal-vps/core-publishing": [
         "core-publishing/src/index.ts"
       ]
     }

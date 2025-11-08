@@ -1,11 +1,11 @@
 import { App, TFile, TFolder, normalizePath } from 'obsidian';
-import { FolderConfig } from '../../../core-publishing/src/lib/domain/models';
+import { FolderConfig } from '../../../core-publishing/src/lib/domain/FolderConfig';
 import { VaultPort } from '../../../core-publishing/src/lib/ports/vault-port';
 
 export class ObsidianVaultAdapter implements VaultPort {
   constructor(private readonly app: App) {}
 
-  async collectNotesForFolder(folder: FolderConfig) {
+  async collectNotesFromFolder(folder: FolderConfig) {
     const vault = this.app.vault;
     const folderPath = normalizePath(folder.vaultFolder);
     const root = vault.getAbstractFileByPath(folderPath);

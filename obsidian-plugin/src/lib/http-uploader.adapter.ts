@@ -1,5 +1,5 @@
 import { UploaderPort } from '../../../core-publishing/src/lib/ports/uploader-port';
-import { PublishableNote } from '../../../core-publishing/src/lib/domain/models';
+import { PublishableNote } from '../../../core-publishing/src/lib/domain/PublishableNote';
 
 export class HttpUploaderAdapter implements UploaderPort {
   async uploadNote(note: PublishableNote): Promise<void> {

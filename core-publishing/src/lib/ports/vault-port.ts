@@ -1,4 +1,4 @@
-import { FolderConfig } from '../domain/models.js';
+import { FolderConfig } from '../domain/FolderConfig.js';
 
 export interface VaultPort {
   /**
@@ -6,7 +6,7 @@ export interface VaultPort {
    * Le port ne doit PAS appliquer la logique de filtrage métier : il collecte,
    * lit les contenus et renvoie toutes les notes avec leurs frontmatters.
    */
-  collectNotesForFolder(folder: FolderConfig): Promise<{
+  collectNotesFromFolder(folder: FolderConfig): Promise<{
     notes: Array<{
       vaultPath: string;
       relativePath: string;

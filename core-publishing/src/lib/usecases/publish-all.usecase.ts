@@ -1,58 +1,102 @@
+import { IgnoreRule } from '../domain/IgnoreRule.js';
+import { PublishableNote } from '../domain/PublishableNote';
+import { PublishPluginSettings } from '../domain/PublishPluginSettings';
 import {
-  PublishPluginSettings,
-  PublishableNote,
-  FolderConfig,
-} from '../domain/models.js';
-import { VaultPort } from '../ports/vault-port.js';
-import { UploaderPort } from '../ports/uploader-port.js';
+  ContentSanitizer,
+  DefaultContentSanitizer,
+} from '../domain/services/content-sanitizer';
+import { UploaderPort } from '../ports/uploader-port';
+import { VaultPort } from '../ports/vault-port';
+
+export type PublishAllResult =
+  | { type: 'success'; publishedCount: number }
+  | { type: 'noConfig' }
+  | {
+      type: 'missingVpsConfig';
+      foldersWithoutVps: string[];
+    }
+  | {
+      type: 'error';
+      error: unknown;
+    };
 
 export class PublishAllUseCase {
   constructor(
     private readonly vaultPort: VaultPort,
-    private readonly uploaderPort: UploaderPort
+    private readonly uploaderPort: UploaderPort,
+    private readonly contentSanitizer: ContentSanitizer = new DefaultContentSanitizer()
   ) {}
 
-  async execute(settings: PublishPluginSettings): Promise<void> {
-    for (const folder of settings.folders) {
-      const vps = settings.vpsConfigs.find((v) => v.id === folder.vpsId);
-      if (!vps) {
-        // un vrai log, pas un console.log planqué dans le domaine → à remonter via un logger port si tu veux aller plus loin
-        continue;
-      }
+  async execute(settings: PublishPluginSettings): Promise<PublishAllResult> {
+    if (!settings.vpsConfigs.length || !settings.folders.length) {
+      return { type: 'noConfig' };
+    }
 
-      const { notes } = await this.vaultPort.collectNotesForFolder(folder);
+    let published = 0;
+    const missingVps: string[] = [];
+    const ignoreRules: IgnoreRule[] = settings.ignoreRules ?? [];
 
-      const publishables: PublishableNote[] = [];
-
-      for (const n of notes) {
-        if (this.shouldIgnore(n.frontmatter, folder)) {
+    try {
+      for (const folder of settings.folders) {
+        const vpsConfig = settings.vpsConfigs.find(
+          (v) => v.id === folder.vpsId
+        );
+        if (!vpsConfig) {
+          missingVps.push(folder.id);
           continue;
         }
 
-        publishables.push({
-          vaultPath: n.vaultPath,
-          relativePath: n.relativePath,
-          content: n.content,
-          frontmatter: n.frontmatter,
-          folderConfig: folder,
-          vpsConfig: vps,
-        });
+        const { notes } = await this.vaultPort.collectNotesFromFolder(folder);
+
+        for (const raw of notes) {
+          if (this.shouldIgnore(raw.frontmatter, ignoreRules)) {
+            continue;
+          }
+
+          const note: PublishableNote = {
+            vaultPath: raw.vaultPath,
+            relativePath: raw.relativePath,
+            content: raw.content,
+            frontmatter: raw.frontmatter,
+            folderConfig: folder,
+            vpsConfig,
+          };
+
+          const sanitized = this.contentSanitizer.sanitizeNote(
+            note,
+            folder.sanitization
+          );
+
+          await this.uploaderPort.uploadNote(sanitized);
+          published++;
+        }
       }
 
-      for (const note of publishables) {
-        await this.uploaderPort.uploadNote(note);
+      if (missingVps.length > 0) {
+        return {
+          type: 'missingVpsConfig',
+          foldersWithoutVps: missingVps,
+        };
       }
+
+      return { type: 'success', publishedCount: published };
+    } catch (error) {
+      return { type: 'error', error };
     }
   }
 
   private shouldIgnore(
     frontmatter: Record<string, any>,
-    folder: FolderConfig
+    rules: IgnoreRule[]
   ): boolean {
-    for (const rule of folder.ignoreRules) {
+    if (!rules || rules.length === 0) {
+      return false;
+    }
+
+    for (const rule of rules) {
       const value = frontmatter?.[rule.property];
 
-      if (rule.ignoreIf && value === rule.ignoreIf) {
+      if (typeof rule.ignoreIf === 'boolean' && value === rule.ignoreIf) {
         return true;
       }
 

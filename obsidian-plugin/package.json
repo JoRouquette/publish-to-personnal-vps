@@ -1,5 +1,5 @@
 {
-  "name": "@publish-to-personnal-vps/obsidian-plugin",
+  "name": "@publish-to-personal-vps/obsidian-plugin",
   "version": "0.0.1",
   "private": true,
   "type": "module",

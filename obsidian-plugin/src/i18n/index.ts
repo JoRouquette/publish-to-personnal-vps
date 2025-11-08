@@ -1,8 +1,6 @@
-// obsidian-plugin/src/i18n/index.ts
 import type { App } from 'obsidian';
 import { en, fr, type Locale, type Translations } from './locales';
 
-// Keys for settings
 export type I18nSettings = {
   locale?: Locale | 'system';
 };

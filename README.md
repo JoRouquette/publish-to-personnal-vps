@@ -1,4 +1,4 @@
-# PublishToPersonnalVps
+# PublishToPersonalVps
 
 Publish selected folders from your Obsidian vault to your **own VPS**, similar in spirit to Obsidian Publish, but self-hosted and fully under your control.
 
@@ -34,7 +34,7 @@ Everything is plain TypeScript with **relative imports only**, no Nx, no path al
 ## Repository Structure
 
 ```text
-publish-to-personnal-vps/
+publish-to-personal-vps/
   core-publishing/
     src/
       lib/
@@ -132,7 +132,7 @@ This layer does **not** know:
 - Loads/saves `PublishPluginSettings` from Obsidian’s data store.
 - Registers:
 
-  - Settings tab (`PublishToPersonnalVpsSettingTab`).
+  - Settings tab (`PublishToPersonalVpsSettingTab`).
   - Command: “Publish to personal VPS”.
 
 - On publish:
@@ -159,7 +159,7 @@ This layer does **not** know:
 - Styles (`styles.css`) are minimal and theme-friendly:
 
   - Use Obsidian CSS variables (`--background-secondary`, `--text-normal`, etc.).
-  - Scoped under `.publish-to-personnal-vps-settings` to avoid global pollution.
+  - Scoped under `.publish-to-personal-vps-settings` to avoid global pollution.
 
 ## Build & Development
 
@@ -229,7 +229,7 @@ This runs:
 Result:
 
 ```text
-dist/PublishToPersonnalVps/
+dist/PublishToPersonalVps/
   main.js
   manifest.json
   styles.css
@@ -257,25 +257,25 @@ This folder is what Obsidian expects for a community plugin.
    Option A – copy:
 
    ```bash
-   cp -r dist/PublishToPersonnalVps "<path-to-your-vault>/.obsidian/plugins/PublishToPersonnalVps"
+   cp -r dist/PublishToPersonalVps "<path-to-your-vault>/.obsidian/plugins/PublishToPersonalVps"
    ```
 
    Option B – symlink (useful in dev):
 
    ```bash
    ln -s \
-     "$(pwd)/dist/PublishToPersonnalVps" \
-     "<path-to-your-vault>/.obsidian/plugins/PublishToPersonnalVps"
+     "$(pwd)/dist/PublishToPersonalVps" \
+     "<path-to-your-vault>/.obsidian/plugins/PublishToPersonalVps"
    ```
 
 4. **Enable the plugin in Obsidian**
 
    - Settings → “Community plugins” → “Installed plugins”.
-   - Enable **Publish To Personnal VPS**.
+   - Enable **Publish To personal VPS**.
 
 5. **Configure the plugin**
 
-   In Obsidian’s settings → “Publish To Personnal VPS”:
+   In Obsidian’s settings → “Publish To personal VPS”:
 
    - **VPS configuration:**
 
@@ -467,7 +467,7 @@ Add UI elements in `setting-tab.ts` to:
 - Check that the final folder structure looks like:
 
   ```text
-  <vault>/.obsidian/plugins/PublishToPersonnalVps/
+  <vault>/.obsidian/plugins/PublishToPersonalVps/
     main.js
     manifest.json
     styles.css
