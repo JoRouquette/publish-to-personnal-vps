@@ -3,165 +3,151 @@ import type { PublishableNote } from '../../../core-publishing/src/lib/domain/Pu
 import type { UploaderPort } from '../../../core-publishing/src/lib/ports/uploader-port';
 import type { VpsConfig } from '../../../core-publishing/src/lib/domain/VpsConfig';
 
+type ApiNote = {
+  id: string;
+  slug: string;
+  route: string;
+  relativePath?: string;
+  vaultPath: string;
+  markdown: string;
+  frontmatter: {
+    title: string;
+    description: string;
+    date: string;
+    tags: string[];
+  };
+  publishedAt: string;
+  updatedAt: string;
+};
+
 export class HttpUploaderAdapter implements UploaderPort {
   constructor(private readonly vpsConfig: VpsConfig) {}
 
-  async uploadNote(note: PublishableNote): Promise<void> {
-    const { folderConfig, frontmatter = {} as any } = note;
+  async uploadNotes(notes: PublishableNote[]): Promise<void> {
+    if (!Array.isArray(notes) || notes.length === 0) return;
 
-    const rawSlug =
-      frontmatter.slug ??
-      frontmatter.title ??
-      this.extractFileNameWithoutExt(note.relativePath ?? note.vaultPath);
+    const vps = (notes[0] as any).vpsConfig ?? this.vpsConfig;
+    const apiKeyPlain = vps.apiKey;
 
-    const slug = this.slugify(rawSlug);
+    const apiNotes: ApiNote[] = notes.map((note) => this.buildApiNote(note));
 
-    const routeBase = (folderConfig?.routeBase ?? '').replace(/\/+$/, '') || '';
+    const body = { notes: apiNotes };
 
-    const route = `${routeBase}/${slug}` || `/${slug}`;
-
-    const nowIso = new Date().toISOString();
-
-    const publishedAt =
-      this.toIsoString(frontmatter.publishedAt) ??
-      this.toIsoString(frontmatter.date) ??
-      nowIso;
-
-    const updatedAt = this.toIsoString(frontmatter.updatedAt) ?? publishedAt;
-
-    const apiFrontmatter = {
-      title: frontmatter.title ?? rawSlug,
-      description: frontmatter.description ?? '',
-      date: this.toIsoString(frontmatter.date) ?? publishedAt,
-      tags: this.toStringArray(frontmatter.tags),
-    };
-
-    const id = note.relativePath ?? note.vaultPath ?? route;
-
-    const body = {
-      notes: [
-        {
-          id,
-          slug,
-          route,
-          markdown: note.content,
-          frontmatter: apiFrontmatter,
-          publishedAt,
-          updatedAt,
-        },
-      ],
-    };
-
-    const vps = (note as any).vpsConfig ?? this.vpsConfig;
-
-    const requestOptions = {
+    const response = await requestUrl({
       url: vps.url.replace(/\/$/, '') + '/api/upload',
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': vps.apiKey,
+        'x-api-key': apiKeyPlain,
       },
       body: JSON.stringify(body),
-    };
+    });
 
-    try {
-      const response = await requestUrl(requestOptions);
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(
+        `Upload failed with status ${response.status}: ${response.text}`
+      );
+    }
 
-      if (response.status < 200 || response.status >= 300) {
-        console.error(
-          `[HttpUploaderAdapter] Upload failed with status ${response.status}: ${response.text}`
-        );
-        throw new Error(
-          `Upload failed with status ${response.status}: ${response.text}`
-        );
-      }
-
-      const json = response.json;
-
-      if (!json || json.ok !== true) {
-        console.error(
-          `[HttpUploaderAdapter] Upload API returned an error: ${JSON.stringify(
-            json
-          )}`
-        );
-        throw new Error(
-          `Upload API returned an error: ${JSON.stringify(json)}`
-        );
-      }
-    } catch (err) {
-      console.error('[HttpUploaderAdapter] Exception during upload:', err);
-      throw err;
+    const json = response.json;
+    if (!json || json.ok !== true) {
+      throw new Error(`Upload API returned an error: ${JSON.stringify(json)}`);
     }
   }
 
-  // #region: Helpers privés
+  // #region: private helpers
+
+  private buildApiNote(note: PublishableNote): ApiNote {
+    const fm: any = note.frontmatter ?? {};
+
+    const rawSlug =
+      fm.slug ?? fm.title ?? this.extractFileNameWithoutExt(note.vaultPath);
+
+    const slug = this.slugify(rawSlug);
+
+    const routeBase = (note.folderConfig?.routeBase ?? '').replace(/\/+$/, '');
+
+    let route = `${routeBase ? routeBase : ''}/${
+      note.relativePath
+    }/${slug}`.replace(/\/{2,}/g, '/');
+
+    if (!route.startsWith('/')) route = `/${route}`;
+
+    const nowIso = new Date().toISOString();
+    const publishedAt =
+      this.toIsoString(fm.publishedAt) ?? this.toIsoString(fm.date) ?? nowIso;
+
+    const updatedAt = this.toIsoString(fm.updatedAt) ?? publishedAt;
+
+    return {
+      id: note.relativePath ?? note.vaultPath ?? route,
+      slug,
+      route: route,
+      relativePath: note.relativePath,
+      vaultPath: note.vaultPath,
+      markdown: note.content,
+      frontmatter: {
+        title: fm.title ?? rawSlug,
+        description: fm.description ?? '',
+        date: this.toIsoString(fm.date) ?? publishedAt,
+        tags: this.toStringArray(fm.tags),
+      },
+      publishedAt,
+      updatedAt,
+    };
+  }
 
   private extractFileNameWithoutExt(path: string): string {
-    const lastSegment = path.split('/').pop() ?? path;
-    const result = lastSegment.replace(/\.[^/.]+$/, '');
-    return result;
+    const last = path.split('/').pop() ?? path;
+    return last.replace(/\.[^/.]+$/, '');
+    // "Arakišib — .../Angle mort.md" -> "Angle mort"
   }
 
   private slugify(value: string): string {
-    const result = value
+    return value
       .normalize('NFKD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .trim();
-    return result;
   }
 
   private toIsoString(value: unknown): string | null {
     if (!value) return null;
-
     if (value instanceof Date) {
-      const t = value.getTime();
-      const result = isNaN(t) ? null : value.toISOString();
-      return result;
+      return isNaN(value.getTime()) ? null : value.toISOString();
     }
-
     if (typeof value === 'string') {
       const d = new Date(value);
-      const result = isNaN(d.getTime()) ? null : d.toISOString();
-      return result;
+      return isNaN(d.getTime()) ? null : d.toISOString();
     }
-
     if (typeof (value as any).toISOString === 'function') {
       try {
         const iso = (value as any).toISOString();
         const d = new Date(iso);
-        const result = isNaN(d.getTime()) ? null : d.toISOString();
-        return result;
-      } catch (err) {
-        console.error('[HttpUploaderAdapter] toIsoString (custom) error:', err);
+        return isNaN(d.getTime()) ? null : d.toISOString();
+      } catch {
         return null;
       }
     }
-
     return null;
   }
 
   private toStringArray(tags: unknown): string[] {
     if (!tags) return [];
-
     if (Array.isArray(tags)) {
-      const result = tags
+      return tags
         .map((t) => (typeof t === 'string' ? t : String(t)))
         .map((t) => t.trim())
-        .filter((t) => t.length > 0);
-      return result;
+        .filter(Boolean);
     }
-
     if (typeof tags === 'string') {
-      const result = tags
+      return tags
         .split(',')
         .map((t) => t.trim())
-        .filter((t) => t.length > 0);
-      return result;
+        .filter(Boolean);
     }
-
     return [];
   }
 }

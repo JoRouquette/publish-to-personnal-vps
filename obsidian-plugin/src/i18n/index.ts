@@ -6,7 +6,6 @@ export type I18nSettings = {
 };
 
 export function detectSystemLocale(app: App): Locale {
-  // Obsidian doesn't expose locale officially, but we can inspect navigator.language
   const lang =
     (navigator as any).language || (navigator as any).userLanguage || 'en';
 

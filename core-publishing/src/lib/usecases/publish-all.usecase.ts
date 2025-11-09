@@ -37,7 +37,7 @@ export class PublishAllUseCase {
     }
 
     const missingVps: string[] = [];
-    const allRaw: Array<{
+    const collected: Array<{
       vaultPath: string;
       relativePath: string;
       content: string;
@@ -51,9 +51,9 @@ export class PublishAllUseCase {
         missingVps.push(folder.id);
         continue;
       }
-      const { notes } = await this.vaultPort.collectNotesFromFolder(folder); // doit être récursif côté adapter
-      for (const raw of notes) {
-        allRaw.push({ ...raw, folder });
+      const { notes } = await this.vaultPort.collectNotesFromFolder(folder);
+      for (const n of notes) {
+        collected.push({ ...n, folder });
       }
     }
 
@@ -61,36 +61,57 @@ export class PublishAllUseCase {
       return { type: 'missingVpsConfig', foldersWithoutVps: missingVps };
     }
 
-    const filtered = allRaw.filter((raw) =>
+    const filtered = collected.filter((raw) =>
       this.shouldKeep(raw.frontmatter, settings.ignoreRules ?? null)
     );
 
+    if (filtered.length === 0) {
+      progress?.start(0);
+      progress?.finish();
+      return { type: 'success', publishedCount: 0 };
+    }
+
     progress?.start(filtered.length);
+
+    const byVps = new Map<
+      string,
+      { vpsId: string; notes: PublishableNote[] }
+    >();
+
+    for (const raw of filtered) {
+      const vpsConfig = settings.vpsConfigs.find(
+        (v) => v.id === raw.folder.vpsId
+      )!;
+
+      const note: PublishableNote = {
+        vaultPath: raw.vaultPath,
+        relativePath: this.slugify(raw.relativePath),
+        content: raw.content,
+        frontmatter: raw.frontmatter,
+        folderConfig: raw.folder,
+        vpsConfig,
+      };
+
+      const sanitized = this.contentSanitizer.sanitizeNote(
+        note,
+        raw.folder.sanitization
+      );
+
+      const key = vpsConfig.id;
+      let bucket = byVps.get(key);
+      if (!bucket) {
+        bucket = { vpsId: key, notes: [] };
+        byVps.set(key, bucket);
+      }
+      bucket.notes.push(sanitized);
+    }
 
     let published = 0;
     try {
-      for (const raw of filtered) {
-        const vpsConfig = settings.vpsConfigs.find(
-          (v) => v.id === raw.folder.vpsId
-        )!;
-
-        const note: PublishableNote = {
-          vaultPath: raw.vaultPath,
-          relativePath: raw.relativePath,
-          content: raw.content,
-          frontmatter: raw.frontmatter,
-          folderConfig: raw.folder,
-          vpsConfig,
-        };
-
-        const sanitized = this.contentSanitizer.sanitizeNote(
-          note,
-          raw.folder.sanitization
-        );
-
-        await this.uploaderPort.uploadNote(sanitized);
-        published++;
-        progress?.advance(1);
+      for (const { notes } of byVps.values()) {
+        await this.uploaderPort.uploadNotes(notes);
+        published += notes.length;
+        progress?.advance(notes.length);
       }
 
       progress?.finish();
@@ -110,14 +131,30 @@ export class PublishAllUseCase {
     for (const rule of rules) {
       const value = frontmatter?.[rule.property];
 
-      if (typeof rule.ignoreIf === 'boolean') {
-        if (value === rule.ignoreIf) return false;
+      if (typeof rule.ignoreIf === 'boolean' && value === rule.ignoreIf) {
+        return false;
       }
 
-      if (rule.ignoreValues && rule.ignoreValues.length > 0) {
+      if (rule.ignoreValues?.length) {
         if (rule.ignoreValues.some((v) => v === value)) return false;
       }
     }
     return true;
+  }
+
+  private slugify(value: string): string {
+    if (!value) return '';
+
+    value = value.trim().split('/').slice(0, -1).join('/');
+
+    value = value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[^a-zA-Z0-9\s/]/g, '') // Remove special characters except slashes and spaces
+      .replace(/\s{2,}/g, ' ')
+      .toLowerCase()
+      .replace(/\s/g, '-'); // Replace single spaces with hyphens
+
+    return value;
   }
 }

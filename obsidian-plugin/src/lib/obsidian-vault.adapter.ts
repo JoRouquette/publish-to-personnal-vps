@@ -42,7 +42,7 @@ export class ObsidianVaultAdapter implements VaultPort {
 
         result.push({
           vaultPath: node.path,
-          relativePath: this.computeRelative(node.path, rootPath), // <-- toujours string
+          relativePath: this.computeRelative(node.path, rootPath),
           content,
           frontmatter,
         });

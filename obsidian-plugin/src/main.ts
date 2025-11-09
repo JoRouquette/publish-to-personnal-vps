@@ -1,4 +1,3 @@
-import { ExportSettingsUseCase } from 'core-publishing/src/lib/usecases/export-settings.usecase';
 import * as fs from 'fs';
 import { Notice, Plugin } from 'obsidian';
 import { promisify } from 'util';
@@ -9,7 +8,6 @@ import { getTranslations } from './i18n';
 import { decryptApiKey, encryptApiKey } from './lib/api-key-crypto';
 import { HttpUploaderAdapter } from './lib/http-uploader.adapter';
 import { ObsidianVaultAdapter } from './lib/obsidian-vault.adapter';
-import { PluginSettingsFileExportAdapter } from './lib/plugin-settings-file.adapter';
 import { PublishToPersonalVpsSettingTab } from './lib/setting-tab';
 import { testVpsConnection } from './lib/services/http-connection.service';
 import { NoticeProgressAdapter } from './lib/notice-progress.adapter';
@@ -76,6 +74,23 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
       callback: () => this.publishAll(),
     });
 
+    this.addCommand({
+      id: 'test-vps-connection',
+      name: 'Test VPS connection',
+      callback: () => this.testConnection(),
+    });
+
+    this.addCommand({
+      id: 'open-vps-settings',
+      name: 'Open VPS Settings',
+      callback: () => {
+        // @ts-ignore
+        this.app.setting.open();
+        // @ts-ignore
+        this.app.setting.openTabById(`${this.manifest.id}`);
+      },
+    });
+
     this.addRibbonIcon('rocket', t.plugin.commandPublish, async () => {
       try {
         await this.publishAll();
@@ -116,26 +131,8 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
   }
 
   async saveSettings() {
-    const { t } = getTranslations(this.app, this.settings);
     const toPersist = withEncryptedApiKeys(this.settings);
-
     await this.saveData(toPersist);
-
-    try {
-      const exportPort = new PluginSettingsFileExportAdapter(
-        this.app,
-        this.manifest.id
-      );
-      const useCase = new ExportSettingsUseCase(exportPort);
-
-      await useCase.execute(toPersist);
-    } catch (e) {
-      console.error(
-        '[PublishToPersonalVps] Failed to export plugin settings',
-        e
-      );
-      new Notice(t.plugin.error.failureToExportSettings);
-    }
   }
 
   async publishAll() {
