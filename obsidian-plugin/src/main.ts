@@ -141,7 +141,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     const { t } = getTranslations(this.app, this.settings);
 
     const vaultPort = new ObsidianVaultAdapter(this.app);
-    const uploaderPort = new HttpUploaderAdapter();
+    const uploaderPort = new HttpUploaderAdapter(this.settings.vpsConfigs[0]);
     const useCase = new PublishAllUseCase(vaultPort, uploaderPort);
 
     const result = await useCase.execute(this.settings);
