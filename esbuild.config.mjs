@@ -47,7 +47,5 @@ if (prod) {
   await context.rebuild();
   process.exit(0);
 } else {
-  // Mode dev = watch
   await context.watch();
-  console.log('🔁 esbuild watching (ctrl+c to stop)');
 }

@@ -12,6 +12,7 @@ import { ObsidianVaultAdapter } from './lib/obsidian-vault.adapter';
 import { PluginSettingsFileExportAdapter } from './lib/plugin-settings-file.adapter';
 import { PublishToPersonalVpsSettingTab } from './lib/setting-tab';
 import { testVpsConnection } from './lib/services/http-connection.service';
+import { NoticeProgressAdapter } from './lib/notice-progress.adapter';
 
 const readFile = promisify(fs.readFile);
 
@@ -138,31 +139,35 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
   }
 
   async publishAll() {
-    const { t } = getTranslations(this.app, this.settings);
+    const settings = this.settings;
 
-    const vaultPort = new ObsidianVaultAdapter(this.app);
-    const uploaderPort = new HttpUploaderAdapter(this.settings.vpsConfigs[0]);
-    const useCase = new PublishAllUseCase(vaultPort, uploaderPort);
+    const vault = new ObsidianVaultAdapter(this.app);
+    const vps = settings.vpsConfigs?.[0];
+    if (!vps) {
+      new Notice('No VPS configured');
+      return;
+    }
+    const uploader = new HttpUploaderAdapter(vps);
+    const usecase = new PublishAllUseCase(vault, uploader);
 
-    const result = await useCase.execute(this.settings);
+    // Progress (Notice)
+    const progress = new NoticeProgressAdapter();
 
+    const result = await usecase.execute(settings, progress);
     switch (result.type) {
       case 'success':
-        new Notice(t.plugin.publishSuccess);
+        new Notice(`✅ Published ${result.publishedCount} note(s).`);
         break;
       case 'noConfig':
-        new Notice(t.plugin.noConfig);
+        new Notice('⚠️ No folders or VPS configured.');
         break;
       case 'missingVpsConfig':
-        new Notice(
-          t.settings.errors.missingVpsConfig +
-            result.foldersWithoutVps.join(', ')
-        );
-        console.warn('Missing VPS for folders: ', result.foldersWithoutVps);
+        console.warn('Missing VPS for folders:', result.foldersWithoutVps);
+        new Notice('⚠️ Some folder(s) have no VPS configured (see console).');
         break;
       case 'error':
         console.error(result.error);
-        new Notice(t.plugin.publishError);
+        new Notice('❌ Error during publishing (see console).');
         break;
     }
   }

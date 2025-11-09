@@ -17,6 +17,7 @@ export class HttpUploaderAdapter implements UploaderPort {
     const slug = this.slugify(rawSlug);
 
     const routeBase = (folderConfig?.routeBase ?? '').replace(/\/+$/, '') || '';
+
     const route = `${routeBase}/${slug}` || `/${slug}`;
 
     const nowIso = new Date().toISOString();
@@ -51,26 +52,45 @@ export class HttpUploaderAdapter implements UploaderPort {
       ],
     };
 
-    const response = await requestUrl({
-      url: this.vpsConfig.url.replace(/\/$/, '') + '/api/upload',
+    const vps = (note as any).vpsConfig ?? this.vpsConfig;
+
+    const requestOptions = {
+      url: vps.url.replace(/\/$/, '') + '/api/upload',
       method: 'POST',
       headers: {
-        Origin: 'app://obsidian.md',
         'Content-Type': 'application/json',
-        'x-api-key': this.vpsConfig.apiKey,
+        'x-api-key': vps.apiKey,
       },
       body: JSON.stringify(body),
-    });
+    };
 
-    if (response.status < 200 || response.status >= 300) {
-      throw new Error(
-        `Upload failed with status ${response.status}: ${response.text}`
-      );
-    }
+    try {
+      const response = await requestUrl(requestOptions);
 
-    const json = response.json;
-    if (!json || json.ok !== true) {
-      throw new Error(`Upload API returned an error: ${JSON.stringify(json)}`);
+      if (response.status < 200 || response.status >= 300) {
+        console.error(
+          `[HttpUploaderAdapter] Upload failed with status ${response.status}: ${response.text}`
+        );
+        throw new Error(
+          `Upload failed with status ${response.status}: ${response.text}`
+        );
+      }
+
+      const json = response.json;
+
+      if (!json || json.ok !== true) {
+        console.error(
+          `[HttpUploaderAdapter] Upload API returned an error: ${JSON.stringify(
+            json
+          )}`
+        );
+        throw new Error(
+          `Upload API returned an error: ${JSON.stringify(json)}`
+        );
+      }
+    } catch (err) {
+      console.error('[HttpUploaderAdapter] Exception during upload:', err);
+      throw err;
     }
   }
 
@@ -78,17 +98,19 @@ export class HttpUploaderAdapter implements UploaderPort {
 
   private extractFileNameWithoutExt(path: string): string {
     const lastSegment = path.split('/').pop() ?? path;
-    return lastSegment.replace(/\.[^/.]+$/, '');
+    const result = lastSegment.replace(/\.[^/.]+$/, '');
+    return result;
   }
 
   private slugify(value: string): string {
-    return value
+    const result = value
       .normalize('NFKD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .trim();
+    return result;
   }
 
   private toIsoString(value: unknown): string | null {
@@ -96,20 +118,24 @@ export class HttpUploaderAdapter implements UploaderPort {
 
     if (value instanceof Date) {
       const t = value.getTime();
-      return isNaN(t) ? null : value.toISOString();
+      const result = isNaN(t) ? null : value.toISOString();
+      return result;
     }
 
     if (typeof value === 'string') {
       const d = new Date(value);
-      return isNaN(d.getTime()) ? null : d.toISOString();
+      const result = isNaN(d.getTime()) ? null : d.toISOString();
+      return result;
     }
 
     if (typeof (value as any).toISOString === 'function') {
       try {
         const iso = (value as any).toISOString();
         const d = new Date(iso);
-        return isNaN(d.getTime()) ? null : d.toISOString();
-      } catch {
+        const result = isNaN(d.getTime()) ? null : d.toISOString();
+        return result;
+      } catch (err) {
+        console.error('[HttpUploaderAdapter] toIsoString (custom) error:', err);
         return null;
       }
     }
@@ -121,17 +147,19 @@ export class HttpUploaderAdapter implements UploaderPort {
     if (!tags) return [];
 
     if (Array.isArray(tags)) {
-      return tags
+      const result = tags
         .map((t) => (typeof t === 'string' ? t : String(t)))
         .map((t) => t.trim())
         .filter((t) => t.length > 0);
+      return result;
     }
 
     if (typeof tags === 'string') {
-      return tags
+      const result = tags
         .split(',')
         .map((t) => t.trim())
         .filter((t) => t.length > 0);
+      return result;
     }
 
     return [];

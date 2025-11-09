@@ -1,56 +1,69 @@
-import { App, TFile, TFolder, normalizePath } from 'obsidian';
-import { FolderConfig } from '../../../core-publishing/src/lib/domain/FolderConfig';
-import { VaultPort } from '../../../core-publishing/src/lib/ports/vault-port';
+// obsidian-plugin/src/lib/obsidian-vault.adapter.ts
+import { App, TAbstractFile, TFile, TFolder } from 'obsidian';
+import type { VaultPort } from '../../../core-publishing/src/lib/ports/vault-port';
+import type { FolderConfig } from '../../../core-publishing/src/lib/domain/FolderConfig';
 
 export class ObsidianVaultAdapter implements VaultPort {
   constructor(private readonly app: App) {}
 
-  async collectNotesFromFolder(folder: FolderConfig) {
-    const vault = this.app.vault;
-    const folderPath = normalizePath(folder.vaultFolder);
-    const root = vault.getAbstractFileByPath(folderPath);
-
-    if (!(root instanceof TFolder)) {
-      return { notes: [] };
-    }
-
-    const notes: Array<{
+  async collectNotesFromFolder(folderCfg: FolderConfig): Promise<{
+    notes: Array<{
+      vaultPath: string;
+      relativePath: string;
+      content: string;
+      frontmatter: Record<string, any>;
+    }>;
+  }> {
+    const result: Array<{
       vaultPath: string;
       relativePath: string;
       content: string;
       frontmatter: Record<string, any>;
     }> = [];
 
-    const stack: (TFolder | TFile)[] = [root];
+    const rootPath = folderCfg.vaultFolder?.trim();
+    if (!rootPath) return { notes: result };
 
-    while (stack.length) {
-      const current = stack.pop();
-      if (!current) continue;
+    const root = this.app.vault.getAbstractFileByPath(rootPath);
+    if (!root) return { notes: result };
 
-      if (current instanceof TFolder) {
-        for (const child of current.children) {
-          if (child instanceof TFolder || child instanceof TFile) {
-            stack.push(child);
-          }
+    const walk = async (node: TAbstractFile) => {
+      if (node instanceof TFolder) {
+        for (const child of node.children) {
+          await walk(child);
         }
-      } else if (current instanceof TFile && current.extension === 'md') {
-        const content = await vault.read(current);
-        const cache = this.app.metadataCache.getFileCache(current);
-        const frontmatter = cache?.frontmatter || {};
+      } else if (node instanceof TFile) {
+        if ((node.extension || '').toLowerCase() !== 'md') return;
 
-        const relativePath = current.path
-          .substring(root.path.length)
-          .replace(/^\/+/, '');
+        const content = await this.app.vault.read(node);
+        const cache = this.app.metadataCache.getFileCache(node);
+        const frontmatter: Record<string, any> =
+          (cache?.frontmatter as any) ?? {};
 
-        notes.push({
-          vaultPath: current.path,
-          relativePath,
+        result.push({
+          vaultPath: node.path,
+          relativePath: this.computeRelative(node.path, rootPath), // <-- toujours string
           content,
           frontmatter,
         });
       }
-    }
+    };
 
-    return { notes };
+    await walk(root);
+    return { notes: result };
+  }
+
+  private computeRelative(filePath: string, folderPath: string): string {
+    // Toujours renvoyer une string :
+    // - direct sous le dossier -> "Fichier.md"
+    // - sous-dossier -> "Sous/Path/Fichier.md"
+    // - si incohérent, fallback: filePath entier
+    if (!folderPath) return filePath;
+    if (filePath.startsWith(folderPath)) {
+      let rel = filePath.slice(folderPath.length);
+      rel = rel.replace(/^\/+/, '');
+      return rel.length > 0 ? rel : '';
+    }
+    return filePath;
   }
 }
