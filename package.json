@@ -6,7 +6,8 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production && npm run package",
     "package": "sh ./scripts/package-plugin.sh",
-    "release": "semantic-release"
+    "release": "semantic-release",
+    "prepare": "husky"
   },
   "private": true,
   "dependencies": {
