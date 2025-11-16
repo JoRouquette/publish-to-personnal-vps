@@ -1,12 +1,16 @@
 import { ContentSanitizer } from '../domain/ContentSanitizer.js';
 import { FolderConfig } from '../domain/FolderConfig.js';
-import { IgnoreRule } from '../domain/IgnoreRule.js';
 import { PublishableNote } from '../domain/PublishableNote.js';
 import { PublishPluginSettings } from '../domain/PublishPluginSettings.js';
 import { DefaultContentSanitizer } from '../domain/services/default-content-sanitizer.js';
+
 import type { ProgressPort } from '../ports/progress-port.js';
-import { UploaderPort } from '../ports/uploader-port.js';
-import { VaultPort } from '../ports/vault-port.js';
+import type { UploaderPort } from '../ports/uploader-port.js';
+import type { VaultPort } from '../ports/vault-port.js';
+
+import { DetectAssetsUseCase } from './detect-assets.usecase.js';
+import { DetectWikilinksUseCase } from './detect-wikilinks.usecase.js';
+import { EvaluateIgnoreRulesUseCase } from './evaluate-ignore-rules.usecase.js';
 import { NormalizeFrontmatterUseCase } from './normalize-frontmatter.usecase.js';
 
 export type PublicationResult =
@@ -15,7 +19,27 @@ export type PublicationResult =
   | { type: 'missingVpsConfig'; foldersWithoutVps: string[] }
   | { type: 'error'; error: unknown };
 
+/**
+ * Orchestrateur principal :
+ *
+ * 1. Collecte les notes depuis les folders configurés.
+ * 2. Normalise le frontmatter.
+ * 3. Applique les IgnoreRules.
+ * 4. Sanitize le contenu (ContentSanitizer).
+ * 5. Détecte les assets (![[...]]) dans le markdown.
+ * 6. Détecte les wikilinks ([[...]]) dans le markdown.
+ * 7. Regroupe par VPS et envoie au UploaderPort.
+ *
+ * La collecte physique des fichiers d’assets et la résolution des wikilinks
+ * seront gérées dans une passe ultérieure (CollectAssetsFileUseCase / ResolveWikilinksUseCase),
+ * quand les adapters côté Obsidian + backend seront en place.
+ */
 export class PublishToSiteUseCase {
+  private readonly normalizeFrontmatter = new NormalizeFrontmatterUseCase();
+  private readonly evaluateIgnoreRules = new EvaluateIgnoreRulesUseCase();
+  private readonly detectAssets = new DetectAssetsUseCase();
+  private readonly detectWikilinks = new DetectWikilinksUseCase();
+
   constructor(
     private readonly vaultPort: VaultPort,
     private readonly uploaderPort: UploaderPort,
@@ -24,11 +48,18 @@ export class PublishToSiteUseCase {
 
   async execute(
     settings: PublishPluginSettings,
-    progress?: ProgressPort,
-    frontmatterAnalyzer?: NormalizeFrontmatterUseCase
+    progress?: ProgressPort
   ): Promise<PublicationResult> {
     if (!settings?.vpsConfigs?.length || !settings?.folders?.length) {
       return { type: 'noConfig' };
+    }
+
+    // Index rapide des VPS par id
+    const vpsById = new Map<string, any>();
+    for (const vps of settings.vpsConfigs) {
+      if (vps && vps.id) {
+        vpsById.set(vps.id, vps);
+      }
     }
 
     const missingVps: string[] = [];
@@ -36,19 +67,30 @@ export class PublishToSiteUseCase {
       vaultPath: string;
       relativePath: string;
       content: string;
-      frontmatter: Record<string, any>;
+      frontmatter: Record<string, unknown>;
       folder: FolderConfig;
+      vpsConfig: any;
     }> = [];
 
+    // 1) Collecte de toutes les notes depuis les folders
     for (const folder of settings.folders) {
-      const vpsConfig = settings.vpsConfigs.find((v) => v.id === folder.vpsId);
+      const vpsConfig = vpsById.get(folder.vpsId);
       if (!vpsConfig) {
+        // Folder mal configuré (référence un VPS inexistant)
         missingVps.push(folder.id);
         continue;
       }
+
       const { notes } = await this.vaultPort.collectNotesFromFolder(folder);
       for (const n of notes) {
-        collected.push({ ...n, folder });
+        collected.push({
+          vaultPath: n.vaultPath,
+          relativePath: n.relativePath,
+          content: n.content,
+          frontmatter: n.frontmatter ?? {},
+          folder,
+          vpsConfig,
+        });
       }
     }
 
@@ -56,100 +98,155 @@ export class PublishToSiteUseCase {
       return { type: 'missingVpsConfig', foldersWithoutVps: missingVps };
     }
 
-    const filtered = collected.filter((raw) =>
-      this.shouldKeep(raw.frontmatter, settings.ignoreRules ?? null)
-    );
-
-    if (filtered.length === 0) {
+    if (collected.length === 0) {
       progress?.start(0);
       progress?.finish();
       return { type: 'success', publishedCount: 0 };
     }
 
-    progress?.start(filtered.length);
+    progress?.start(collected.length);
 
-    const byVps = new Map<
-      string,
-      { vpsId: string; notes: PublishableNote[] }
-    >();
+    const publishable: PublishableNote[] = [];
+    const allAssets: any[] = []; // AssetRef[]
+    const allWikilinksByNote: Array<{
+      noteId: string;
+      wikilinks: any[]; // WikilinkRef[]
+    }> = [];
 
-    for (const raw of filtered) {
-      const vpsConfig = settings.vpsConfigs.find(
-        (v) => v.id === raw.folder.vpsId
-      )!;
+    // 2) Traitement par note : frontmatter -> ignore -> sanitize -> assets/wikilinks
+    for (const raw of collected) {
+      // 2.a) Normaliser le frontmatter (dot-notation -> nested, etc.)
+      const domainFrontmatter = this.normalizeFrontmatter.execute({
+        raw: raw.frontmatter,
+      });
 
-      const note: PublishableNote = {
+      // 2.b) Appliquer les IgnoreRules globales
+      const eligibility = this.evaluateIgnoreRules.execute({
+        frontmatter: domainFrontmatter,
+        rules: settings.ignoreRules ?? null,
+      });
+
+      if (!eligibility.isPublishable) {
+        // Note ignorée : on consomme quand même une "unité" de progression
+        progress?.advance(1);
+        continue;
+      }
+
+      // 2.c) Construire une note de domaine minimale
+      const baseNote: PublishableNote = {
         vaultPath: raw.vaultPath,
         relativePath: this.slugify(raw.relativePath),
         content: raw.content,
-        frontmatter: frontmatterAnalyzer?.execute(raw.frontmatter),
+        // NOTE : frontmatter est désormais un DomainFrontmatter générique,
+        // pas un schéma canonique titre/description/tags.
+        frontmatter: domainFrontmatter,
         folderConfig: raw.folder,
-        vpsConfig,
+        vpsConfig: raw.vpsConfig,
       };
 
+      // 2.d) Sanitize du contenu (fenced code blocks, etc.)
       const sanitized = this.contentSanitizer.sanitizeNote(
-        note,
+        baseNote,
         raw.folder.sanitization
       );
 
-      const key = vpsConfig.id;
-      let bucket = byVps.get(key);
-      if (!bucket) {
-        bucket = { vpsId: key, notes: [] };
-        byVps.set(key, bucket);
+      // 2.e) Détection des assets dans le markdown (sur le contenu final)
+      const { assets } = this.detectAssets.execute({
+        markdown: sanitized.content,
+      });
+      if (assets.length > 0) {
+        allAssets.push(...assets);
       }
-      bucket.notes.push(sanitized);
+
+      // 2.f) Détection des wikilinks (hors ![[...]])
+      const { wikilinks } = this.detectWikilinks.execute({
+        markdown: sanitized.content,
+      });
+      if (wikilinks.length > 0) {
+        allWikilinksByNote.push({
+          noteId: sanitized.vaultPath, // pour l'instant : vaultPath sert d'identifiant logique
+          wikilinks,
+        });
+      }
+
+      publishable.push(sanitized);
+      progress?.advance(1);
     }
 
-    let published = 0;
+    // À ce stade :
+    // - publishable = notes prêtes à être envoyées (contenu + frontmatter normalisé).
+    // - allAssets = tous les AssetRef trouvés (non dédupliqués).
+    // - allWikilinksByNote = wikilinks bruts, groupés par note.
+    //
+    // La collecte physique/upload des assets et la résolution des wikilinks
+    // seront branchées plus tard via CollectAssetsFileUseCase & ResolveWikilinksUseCase.
+
+    if (publishable.length === 0) {
+      progress?.finish();
+      return { type: 'success', publishedCount: 0 };
+    }
+
+    // 3) Regrouper par VPS et uploader via UploaderPort
+    const byVps = new Map<string, PublishableNote[]>();
+
+    for (const note of publishable) {
+      const key = note.vpsConfig.id;
+      const bucket = byVps.get(key);
+      if (!bucket) {
+        byVps.set(key, [note]);
+      } else {
+        bucket.push(note);
+      }
+    }
+
+    let publishedCount = 0;
+
     try {
-      for (const { notes } of byVps.values()) {
+      for (const notes of byVps.values()) {
         await this.uploaderPort.uploadNotes(notes);
-        published += notes.length;
-        progress?.advance(notes.length);
+        publishedCount += notes.length;
+        // On ne touche plus à progress ici : il a déjà été avancé par note.
       }
 
       progress?.finish();
-      return { type: 'success', publishedCount: published };
+      return { type: 'success', publishedCount };
     } catch (error) {
       progress?.finish();
       return { type: 'error', error };
     }
   }
 
-  private shouldKeep(
-    frontmatter: Record<string, any>,
-    rules: IgnoreRule[] | null
-  ): boolean {
-    if (!rules || rules.length === 0) return true;
-
-    for (const rule of rules) {
-      const value = frontmatter?.[rule.property];
-
-      if (typeof rule.ignoreIf === 'boolean' && value === rule.ignoreIf) {
-        return false;
-      }
-
-      if (rule.ignoreValues?.length) {
-        if (rule.ignoreValues.some((v) => v === value)) return false;
-      }
-    }
-    return true;
-  }
-
+  /**
+   * Slugifie le chemin relatif d'une note en ne gardant que les dossiers.
+   *
+   * - On enlève le nom de fichier final.
+   * - On slugifie chaque segment.
+   * - On garde les "/" pour reconstruire un relativePath propre.
+   *
+   * TODO : à terme, cette logique doit migrer vers compute-routing.usecase.ts
+   * pour gérer aussi le slug du fichier et l'id complet.
+   */
   private slugify(value: string): string {
     if (!value) return '';
 
-    value = value.trim().split('/').slice(0, -1).join('/');
+    // On enlève le dernier segment (nom de fichier)
+    const pathOnly = value.trim().split('/').slice(0, -1).join('/');
 
-    value = value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Remove accents
-      .replace(/[^a-zA-Z0-9\s/]/g, '') // Remove special characters except slashes and spaces
-      .replace(/\s{2,}/g, ' ')
-      .toLowerCase()
-      .replace(/\s/g, '-'); // Replace single spaces with hyphens
+    if (!pathOnly) return '';
 
-    return value;
+    const segments = pathOnly.split('/').filter(Boolean);
+
+    const sluggedSegments = segments.map((segment) =>
+      segment
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // accents
+        .replace(/[^a-zA-Z0-9\s]/g, '') // caractères spéciaux
+        .replace(/\s{2,}/g, ' ')
+        .trim()
+        .toLowerCase()
+        .replace(/\s/g, '-')
+    );
+
+    return sluggedSegments.join('/');
   }
 }

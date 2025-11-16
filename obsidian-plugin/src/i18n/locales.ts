@@ -3,6 +3,8 @@ export type Locale = 'en' | 'fr';
 export type PluginTranslations = {
   name: string;
   commandPublish: string;
+  commandTestConnection: string;
+  commandOpenSettings: string;
   publishSuccess: string;
   publishError: string;
   noConfig: string;
@@ -97,6 +99,8 @@ export const en: Translations = {
   plugin: {
     name: 'Publish To Personal VPS',
     commandPublish: 'Launch publishing to Personal VPS',
+    commandTestConnection: 'Test VPS connection',
+    commandOpenSettings: 'Open Publish To Personal VPS Settings',
     publishSuccess: 'Publishing completed.',
     publishError: 'Error during publishing (see console).',
     noConfig: 'No VPS or folder configuration defined.',
@@ -190,6 +194,9 @@ export const fr: Translations = {
   plugin: {
     name: 'Publier vers mon VPS personnel',
     commandPublish: 'Publier vers mon VPS personnel',
+    commandTestConnection: 'Tester la connexion VPS',
+    commandOpenSettings:
+      'Ouvrir les paramètres du plugin Publier vers mon VPS personnel',
     publishSuccess: 'Publication terminée.',
     publishError: 'Erreur lors de la publication (voir la console).',
     noConfig: 'Aucune configuration VPS ou dossier définie.',
