@@ -17,7 +17,7 @@ import { NormalizeFrontmatterUseCase } from './normalize-frontmatter.usecase.js'
 import { RenderInlineDataviewUseCase } from './render-inline-dataview.usecase.js';
 
 export type PublicationResult =
-  | { type: 'success'; publishedCount: number; assetsToPublish?: unknown }
+  | { type: 'success'; publishedCount: number; notes: PublishableNote[] }
   | { type: 'noConfig' }
   | { type: 'missingVpsConfig'; foldersWithoutVps: string[] }
   | { type: 'error'; error: unknown };
@@ -109,7 +109,7 @@ export class PublishToSiteUseCase {
     if (collected.length === 0) {
       progress?.start(0);
       progress?.finish();
-      return { type: 'success', publishedCount: 0 };
+      return { type: 'success', publishedCount: 0, notes: [] };
     }
 
     progress?.start(collected.length);
@@ -166,7 +166,7 @@ export class PublishToSiteUseCase {
 
     if (publishable.length === 0) {
       progress?.finish();
-      return { type: 'success', publishedCount: 0 };
+      return { type: 'success', publishedCount: 0, notes: [] };
     }
 
     // 3) Regroupement par VPS et upload
@@ -185,12 +185,12 @@ export class PublishToSiteUseCase {
 
     try {
       for (const notes of byVps.values()) {
-        await this.uploaderPort.uploadNotes(notes);
+        await this.uploaderPort.upload(notes);
         publishedCount += notes.length;
       }
 
       progress?.finish();
-      return { type: 'success', publishedCount };
+      return { type: 'success', publishedCount, notes: publishable };
     } catch (error) {
       progress?.finish();
       return { type: 'error', error };

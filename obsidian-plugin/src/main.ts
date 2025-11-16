@@ -5,14 +5,23 @@ import type { I18nSettings } from './i18n';
 import { getTranslations } from './i18n';
 
 import { decryptApiKey, encryptApiKey } from './lib/api-key-crypto';
-import { HttpUploaderAdapter } from './lib/http-uploader.adapter';
-import { ObsidianVaultAdapter } from './lib/obsidian-vault.adapter';
-import { PublishToPersonalVpsSettingTab } from './lib/setting-tab';
-import { testVpsConnection } from './lib/services/http-connection.service';
+import { GuidGeneratorAdapter } from './lib/guid-generator.adapter';
 import { NoticeProgressAdapter } from './lib/notice-progress.adapter';
+import { ObsidianVaultAdapter } from './lib/obsidian-vault.adapter';
+import { testVpsConnection } from './lib/services/http-connection.service';
+import { PublishToPersonalVpsSettingTab } from './lib/setting-tab';
 
 import { PublishToSiteUseCase } from 'core-publishing/src';
-import { GuidGeneratorAdapter } from './lib/guid-generator.adapter';
+import {
+  extractNotesWithAssets,
+  type NoteWithAssets,
+} from 'core-publishing/src/lib/domain/NoteWithAssets';
+import type { PublishableNote } from 'core-publishing/src/lib/domain/PublishableNote';
+import { PublishAssetsToSiteUseCase } from 'core-publishing/src/lib/usecases/publish-assets-to-site.usecase';
+import { ObsidianAssetsVaultAdapter } from './lib/obsidian-assets-vault.adapter';
+
+import { AssetsUploaderAdapter } from './lib/assets-uploader.adapter';
+import { NotesUploaderAdapter } from './lib/notes-uploader.adapter';
 
 type PluginLocale = 'en' | 'fr' | 'system';
 
@@ -25,6 +34,7 @@ type PluginLocale = 'en' | 'fr' | 'system';
  *   - locale : comportement de langue (system / fr / en)
  *   - assetsFolder : dossier global d'assets dans le vault
  *   - enableAssetsVaultFallback : fallback de recherche des assets dans tout le vault
+ *   - assetsRoute : route HTTP (backend) pour la publication / exposition des assets
  */
 type PluginSettings = PublishPluginSettings &
   I18nSettings & {
@@ -38,9 +48,6 @@ type PluginSettings = PublishPluginSettings &
 
 /**
  * Defaults pour un vault fraîchement configuré.
- *
- * - assetsFolder: "assets" par défaut (à adapter à ton organisation)
- * - enableAssetsVaultFallback: true pour être permissif au début
  */
 const DEFAULT_SETTINGS: PluginSettings = {
   // core-publishing
@@ -51,7 +58,7 @@ const DEFAULT_SETTINGS: PluginSettings = {
   // i18n
   locale: 'system',
 
-  // vault
+  // vault / assets
   assetsFolder: 'assets',
   assetsRoute: '/assets/',
   enableAssetsVaultFallback: true,
@@ -203,7 +210,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
   }
 
   // ---------------------------------------------------------------------------
-  // Publication
+  // Publication : notes + assets
   // ---------------------------------------------------------------------------
   async publishToSite() {
     const settings = this.settings;
@@ -222,39 +229,131 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
       return;
     }
 
-    // 2. Adaptateurs core
+    // 2. Adaptateurs core (notes)
     const vault = new ObsidianVaultAdapter(this.app);
     const guidGenerator = new GuidGeneratorAdapter();
+
+    // Même si aujourd’hui tu n’utilises qu’un seul VPS,
+    // PublishToSiteUseCase sait déjà gérer plusieurs vpsConfigs.
+    // HttpUploaderAdapter, lui, se base sur vpsConfig à la construction.
     const vps = settings.vpsConfigs[0];
-    const uploader = new HttpUploaderAdapter(vps);
+    const notesUploader = new NotesUploaderAdapter(vps);
 
-    const usecase = new PublishToSiteUseCase(vault, uploader, guidGenerator);
+    const publishNotesUsecase = new PublishToSiteUseCase(
+      vault,
+      notesUploader,
+      guidGenerator
+    );
 
-    // 3. Progress (Notice)
-    const progress = new NoticeProgressAdapter();
+    // 3. Progress pour les notes
+    const notesProgress = new NoticeProgressAdapter();
 
-    // 4. Settings "core" explicitement construits
+    // 4. Settings "core" pour la partie notes
     const coreSettings = buildCoreSettings(settings);
 
-    const result = await usecase.execute(coreSettings, progress);
-    switch (result.type) {
-      case 'success':
-        new Notice(`✅ Published ${result.publishedCount} note(s).`);
-        break;
-      case 'noConfig':
-        new Notice('⚠️ No folders or VPS configured.');
-        break;
-      case 'missingVpsConfig':
-        console.warn(
-          '[PublishToPersonalVps] Missing VPS for folders:',
-          result.foldersWithoutVps
+    const result = await publishNotesUsecase.execute(
+      coreSettings,
+      notesProgress
+    );
+
+    // 5. Gestion des cas d'erreur / config
+    if (result.type === 'noConfig') {
+      new Notice('⚠️ No folders or VPS configured.');
+      return;
+    }
+
+    if (result.type === 'missingVpsConfig') {
+      console.warn(
+        '[PublishToPersonalVps] Missing VPS for folders:',
+        result.foldersWithoutVps
+      );
+      new Notice('⚠️ Some folder(s) have no VPS configured (see console).');
+      return;
+    }
+
+    if (result.type === 'error') {
+      console.error(result.error);
+      new Notice('❌ Error during publishing (see console).');
+      return;
+    }
+
+    // À partir d’ici : succès côté notes
+    const publishedNotesCount = result.publishedCount;
+    const notes: PublishableNote[] = result.notes ?? [];
+
+    if (publishedNotesCount === 0) {
+      new Notice('✅ Nothing to publish (0 note).');
+      return;
+    }
+
+    // 6. Extraction des notes qui ont effectivement des assets
+    const notesWithAssets: NoteWithAssets[] = extractNotesWithAssets(notes);
+
+    if (notesWithAssets.length === 0) {
+      // Aucun asset à traiter, on notifie juste le succès des notes
+      new Notice(
+        `✅ Published ${publishedNotesCount} note(s). No assets to publish.`
+      );
+      return;
+    }
+
+    // 7. Publication des assets
+    const assetsVault = new ObsidianAssetsVaultAdapter(this.app);
+
+    // Adapter HTTP pour AssetsUploaderPort : à implémenter
+    const assetsUploader = new AssetsUploaderAdapter(vps);
+
+    const publishAssetsUsecase = new PublishAssetsToSiteUseCase(
+      assetsVault,
+      assetsUploader
+    );
+
+    const assetsProgress = new NoticeProgressAdapter();
+
+    const assetsResult = await publishAssetsUsecase.execute({
+      notes: notesWithAssets,
+      assetsFolder: settings.assetsFolder,
+      enableAssetsVaultFallback: settings.enableAssetsVaultFallback,
+      progress: assetsProgress,
+    });
+
+    // 8. Synthèse finale (notes + assets)
+    switch (assetsResult.type) {
+      case 'noAssets': {
+        // Normalement déjà filtré, mais on garde le cas pour être robuste.
+        new Notice(
+          `✅ Published ${publishedNotesCount} note(s). No assets to publish.`
         );
-        new Notice('⚠️ Some folder(s) have no VPS configured (see console).');
         break;
-      case 'error':
-        console.error(result.error);
-        new Notice('❌ Error during publishing (see console).');
+      }
+      case 'error': {
+        console.error(
+          '[PublishToPersonalVps] Error while publishing assets:',
+          assetsResult.error
+        );
+        new Notice(
+          `✅ Published ${publishedNotesCount} note(s), but assets publication failed (see console).`
+        );
         break;
+      }
+      case 'success': {
+        const { publishedAssetsCount, failures } = assetsResult;
+
+        if (failures.length > 0) {
+          console.warn(
+            '[PublishToPersonalVps] Some assets failed to publish:',
+            failures
+          );
+          new Notice(
+            `✅ Published ${publishedNotesCount} note(s) and ${publishedAssetsCount} asset(s), with ${failures.length} asset failure(s) (see console).`
+          );
+        } else {
+          new Notice(
+            `✅ Published ${publishedNotesCount} note(s) and ${publishedAssetsCount} asset(s).`
+          );
+        }
+        break;
+      }
     }
   }
 
