@@ -3,6 +3,7 @@ import { FolderConfig } from '../domain/FolderConfig.js';
 import { PublishableNote } from '../domain/PublishableNote.js';
 import { PublishPluginSettings } from '../domain/PublishPluginSettings.js';
 import { DefaultContentSanitizer } from '../domain/services/default-content-sanitizer.js';
+import { GuidGeneratorPort } from '../ports/guid-generator-port.js';
 
 import type { ProgressPort } from '../ports/progress-port.js';
 import type { UploaderPort } from '../ports/uploader-port.js';
@@ -45,6 +46,7 @@ export class PublishToSiteUseCase {
   constructor(
     private readonly vaultPort: VaultPort,
     private readonly uploaderPort: UploaderPort,
+    private readonly guidGenerator: GuidGeneratorPort,
     private readonly contentSanitizer: ContentSanitizer = new DefaultContentSanitizer()
   ) {}
 
@@ -142,6 +144,7 @@ export class PublishToSiteUseCase {
 
       // 2.c) Construire une note de domaine minimale
       const baseNote: PublishableNote = {
+        noteId: this.guidGenerator.generateGuid(),
         vaultPath: raw.vaultPath,
         relativePath: this.slugify(raw.relativePath),
         content: renderedDataview.markdown,

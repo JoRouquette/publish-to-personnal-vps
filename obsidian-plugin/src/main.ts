@@ -1,6 +1,4 @@
-import * as fs from 'fs';
 import { Notice, Plugin } from 'obsidian';
-import { promisify } from 'util';
 
 import type { PublishPluginSettings } from '../../core-publishing/src/lib/domain/PublishPluginSettings';
 import type { I18nSettings } from './i18n';
@@ -14,8 +12,7 @@ import { testVpsConnection } from './lib/services/http-connection.service';
 import { NoticeProgressAdapter } from './lib/notice-progress.adapter';
 
 import { PublishToSiteUseCase } from 'core-publishing/src';
-
-const readFile = promisify(fs.readFile);
+import { GuidGeneratorAdapter } from './lib/guid-generator.adapter';
 
 type PluginLocale = 'en' | 'fr' | 'system';
 
@@ -36,6 +33,7 @@ type PluginSettings = PublishPluginSettings &
     // --- Vault global settings ---
     assetsFolder: string;
     enableAssetsVaultFallback: boolean;
+    assetsRoute: string;
   };
 
 /**
@@ -55,6 +53,7 @@ const DEFAULT_SETTINGS: PluginSettings = {
 
   // vault
   assetsFolder: 'assets',
+  assetsRoute: '/assets/',
   enableAssetsVaultFallback: true,
 };
 
@@ -225,10 +224,11 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
 
     // 2. Adaptateurs core
     const vault = new ObsidianVaultAdapter(this.app);
+    const guidGenerator = new GuidGeneratorAdapter();
     const vps = settings.vpsConfigs[0];
     const uploader = new HttpUploaderAdapter(vps);
 
-    const usecase = new PublishToSiteUseCase(vault, uploader);
+    const usecase = new PublishToSiteUseCase(vault, uploader, guidGenerator);
 
     // 3. Progress (Notice)
     const progress = new NoticeProgressAdapter();

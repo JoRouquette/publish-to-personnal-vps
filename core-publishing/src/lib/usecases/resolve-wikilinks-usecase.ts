@@ -12,18 +12,9 @@ export interface WikilinkTargetDescriptor {
   linkableAliases: string[];
 }
 
-export interface ResolveWikilinksInput {
-  notes: NoteWikilinks[];
-  targets: WikilinkTargetDescriptor[];
-}
-
-export interface ResolveWikilinksNoteResult {
+export interface ResolveWikilinksOutput {
   noteId: string;
   wikilinks: ResolvedWikilink[];
-}
-
-export interface ResolveWikilinksOutput {
-  notes: ResolveWikilinksNoteResult[];
 }
 
 interface TargetMatchInfo {
@@ -43,9 +34,10 @@ function normalizeKey(key: string): string {
 }
 
 export class ResolveWikilinksUseCase {
-  execute(input: ResolveWikilinksInput): ResolveWikilinksOutput {
-    const { notes, targets } = input;
-
+  execute(
+    notes: NoteWikilinks[],
+    targets: WikilinkTargetDescriptor[]
+  ): ResolveWikilinksOutput[] {
     // 1) Construire une map alias normalisé -> cible
     const aliasMap = new Map<string, TargetMatchInfo>();
 
@@ -66,7 +58,7 @@ export class ResolveWikilinksUseCase {
     }
 
     // 2) Résoudre les wikilinks pour chaque note
-    const results: ResolveWikilinksNoteResult[] = [];
+    const results: ResolveWikilinksOutput[] = [];
 
     for (const note of notes) {
       const resolvedForNote: ResolvedWikilink[] = [];
@@ -114,6 +106,6 @@ export class ResolveWikilinksUseCase {
       });
     }
 
-    return { notes: results };
+    return results;
   }
 }
