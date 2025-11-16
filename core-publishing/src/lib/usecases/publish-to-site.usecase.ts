@@ -7,6 +7,7 @@ import { DefaultContentSanitizer } from '../domain/services/default-content-sani
 import type { ProgressPort } from '../ports/progress-port.js';
 import { UploaderPort } from '../ports/uploader-port.js';
 import { VaultPort } from '../ports/vault-port.js';
+import { NormalizeFrontmatterUseCase } from './normalize-frontmatter.usecase.js';
 
 export type PublicationResult =
   | { type: 'success'; publishedCount: number }
@@ -23,7 +24,8 @@ export class PublishToSiteUseCase {
 
   async execute(
     settings: PublishPluginSettings,
-    progress?: ProgressPort
+    progress?: ProgressPort,
+    frontmatterAnalyzer?: NormalizeFrontmatterUseCase
   ): Promise<PublicationResult> {
     if (!settings?.vpsConfigs?.length || !settings?.folders?.length) {
       return { type: 'noConfig' };
@@ -80,7 +82,7 @@ export class PublishToSiteUseCase {
         vaultPath: raw.vaultPath,
         relativePath: this.slugify(raw.relativePath),
         content: raw.content,
-        frontmatter: raw.frontmatter,
+        frontmatter: frontmatterAnalyzer?.execute(raw.frontmatter),
         folderConfig: raw.folder,
         vpsConfig,
       };

@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import { Notice, Plugin } from 'obsidian';
 import { promisify } from 'util';
 import type { PublishPluginSettings } from '../../core-publishing/src/lib/domain/PublishPluginSettings';
-import { PublishAllUseCase } from '../../core-publishing/src/lib/usecases/publish-all.usecase';
 import type { I18nSettings } from './i18n';
 import { getTranslations } from './i18n';
 import { decryptApiKey, encryptApiKey } from './lib/api-key-crypto';
@@ -11,6 +10,7 @@ import { ObsidianVaultAdapter } from './lib/obsidian-vault.adapter';
 import { PublishToPersonalVpsSettingTab } from './lib/setting-tab';
 import { testVpsConnection } from './lib/services/http-connection.service';
 import { NoticeProgressAdapter } from './lib/notice-progress.adapter';
+import { PublishToSiteUseCase } from 'core-publishing/src';
 
 const readFile = promisify(fs.readFile);
 
@@ -145,7 +145,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
       return;
     }
     const uploader = new HttpUploaderAdapter(vps);
-    const usecase = new PublishAllUseCase(vault, uploader);
+    const usecase = new PublishToSiteUseCase(vault, uploader);
 
     // Progress (Notice)
     const progress = new NoticeProgressAdapter();
