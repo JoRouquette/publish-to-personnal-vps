@@ -12,6 +12,7 @@ import { DetectAssetsUseCase } from './detect-assets.usecase.js';
 import { DetectWikilinksUseCase } from './detect-wikilinks.usecase.js';
 import { EvaluateIgnoreRulesUseCase } from './evaluate-ignore-rules.usecase.js';
 import { NormalizeFrontmatterUseCase } from './normalize-frontmatter.usecase.js';
+import { RenderInlineDataviewUseCase } from './render-inline-dataview.usecase.js';
 
 export type PublicationResult =
   | { type: 'success'; publishedCount: number }
@@ -39,6 +40,7 @@ export class PublishToSiteUseCase {
   private readonly evaluateIgnoreRules = new EvaluateIgnoreRulesUseCase();
   private readonly detectAssets = new DetectAssetsUseCase();
   private readonly detectWikilinks = new DetectWikilinksUseCase();
+  private readonly renderInlineDataview = new RenderInlineDataviewUseCase();
 
   constructor(
     private readonly vaultPort: VaultPort,
@@ -132,11 +134,17 @@ export class PublishToSiteUseCase {
         continue;
       }
 
+      // 2.b.1) Rendre les expressions Dataview inline
+      const renderedDataview = this.renderInlineDataview.execute(
+        raw.content,
+        domainFrontmatter
+      );
+
       // 2.c) Construire une note de domaine minimale
       const baseNote: PublishableNote = {
         vaultPath: raw.vaultPath,
         relativePath: this.slugify(raw.relativePath),
-        content: raw.content,
+        content: renderedDataview.markdown,
         // NOTE : frontmatter est désormais un DomainFrontmatter générique,
         // pas un schéma canonique titre/description/tags.
         frontmatter: domainFrontmatter,
