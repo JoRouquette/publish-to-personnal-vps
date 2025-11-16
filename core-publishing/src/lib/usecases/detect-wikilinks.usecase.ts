@@ -1,12 +1,5 @@
-import type { WikilinkRef, WikilinkKind } from '../domain/WikilinkRef';
-
-export interface DetectWikilinksInput {
-  markdown: string;
-}
-
-export interface DetectWikilinksOutput {
-  wikilinks: WikilinkRef[];
-}
+import { PublishableNote } from '../domain';
+import type { WikilinkKind, WikilinkRef } from '../domain/WikilinkRef';
 
 /**
  * Regex pour capturer les wikilinks [[...]].
@@ -39,8 +32,8 @@ function splitOnce(
 }
 
 export class DetectWikilinksUseCase {
-  execute(input: DetectWikilinksInput): DetectWikilinksOutput {
-    const { markdown } = input;
+  execute(note: PublishableNote): PublishableNote {
+    const markdown = note.content;
     const wikilinks: WikilinkRef[] = [];
 
     let match: RegExpExecArray | null;
@@ -88,6 +81,13 @@ export class DetectWikilinksUseCase {
       wikilinks.push(wikilink);
     }
 
-    return { wikilinks };
+    if (wikilinks.length === 0) {
+      return note;
+    }
+
+    return {
+      ...note,
+      wikilinks,
+    };
   }
 }

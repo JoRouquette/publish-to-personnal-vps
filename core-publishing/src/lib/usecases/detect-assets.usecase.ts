@@ -1,15 +1,8 @@
+import { PublishableNote } from '../domain';
 import { AssetAlignment } from '../domain/AssetAlignment';
 import { AssetDisplayOptions } from '../domain/AssetDisplayOptions';
 import { AssetKind } from '../domain/AssetKind';
 import { AssetRef } from '../domain/AssetRef';
-
-export interface DetectAssetsInput {
-  markdown: string;
-}
-
-export interface DetectAssetsOutput {
-  assets: AssetRef[];
-}
 
 /**
  * Regex pour capturer les embeds Obsidian : ![[...]]
@@ -76,8 +69,8 @@ function parseModifiers(tokens: string[]): AssetDisplayOptions {
 }
 
 export class DetectAssetsUseCase {
-  execute(input: DetectAssetsInput): DetectAssetsOutput {
-    const { markdown } = input;
+  execute(note: PublishableNote): PublishableNote {
+    const markdown = note.content;
     const assets: AssetRef[] = [];
 
     let match: RegExpExecArray | null;
@@ -111,6 +104,13 @@ export class DetectAssetsUseCase {
       });
     }
 
-    return { assets };
+    if (assets.length === 0) {
+      return note;
+    }
+
+    return {
+      ...note,
+      assets: assets,
+    };
   }
 }

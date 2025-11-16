@@ -1,41 +1,25 @@
-// core-publishing/src/lib/domain/services/content-sanitizer.ts
+// core-publishing/src/lib/domain/services/default-content-sanitizer.ts
+import type { ContentSanitizer } from '../ContentSanitizer.js';
+import type { PublishableNote } from '../PublishableNote.js';
+import type { SanitizationRules } from '../SanitizationRules.js';
+import { SanitizeMarkdownUseCase } from '../../usecases/sanitize-markdown.usecase.js';
 
-import type { PublishableNote } from '../PublishableNote';
-import type { SanitizationRules } from '../SanitizationRules';
-import { ContentSanitizer } from '../ContentSanitizer';
-
-/**
- * Default implementation of ContentSanitizer.
- * Pure string manipulation, aucun Obsidian / Node / HTTP.
- */
 export class DefaultContentSanitizer implements ContentSanitizer {
-  sanitize(content: string, rules: SanitizationRules | undefined): string {
-    if (!rules) {
-      // Pas de règle => contenu inchangé
-      return content;
-    }
-
-    let result = content;
-
-    if (rules.removeFencedCodeBlocks) {
-      const fencedBackticks = /^```[^\n]*\n[\s\S]*?^```[ \t]*\n?/gm;
-      const fencedTildes = /^~~~[^\n]*\n[\s\S]*?^~~~[ \t]*\n?/gm;
-
-      result = result.replace(fencedBackticks, '');
-      result = result.replace(fencedTildes, '');
-    }
-
-    return result;
-  }
+  private readonly sanitizeMarkdown = new SanitizeMarkdownUseCase();
 
   sanitizeNote(
     note: PublishableNote,
-    rules: SanitizationRules | undefined
+    rules: SanitizationRules | null | undefined
   ): PublishableNote {
-    const sanitizedContent = this.sanitize(note.content, rules);
+    if (!rules) {
+      return note;
+    }
+
+    const { markdown } = this.sanitizeMarkdown.execute(note.content, rules);
+
     return {
       ...note,
-      content: sanitizedContent,
+      content: markdown,
     };
   }
 }
