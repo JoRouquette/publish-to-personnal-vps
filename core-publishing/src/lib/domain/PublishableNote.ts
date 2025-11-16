@@ -1,5 +1,5 @@
 import { FolderConfig } from './FolderConfig';
-import { Frontmatter } from './Frontmatter';
+import { Frontmatter } from './DomainFrontmatter';
 import { VpsConfig } from './VpsConfig';
 
 export interface PublishableNote {
