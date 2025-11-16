@@ -37,7 +37,6 @@ type PluginLocale = 'en' | 'fr' | 'system';
  *   - locale : comportement de langue (system / fr / en)
  *   - assetsFolder : dossier global d'assets dans le vault
  *   - enableAssetsVaultFallback : fallback de recherche des assets dans tout le vault
- *   - assetsRoute : route HTTP (backend) pour la publication / exposition des assets
  */
 type PluginSettings = PublishPluginSettings &
   I18nSettings & {
@@ -46,7 +45,6 @@ type PluginSettings = PublishPluginSettings &
     // --- Vault global settings ---
     assetsFolder: string;
     enableAssetsVaultFallback: boolean;
-    assetsRoute: string;
   };
 
 /**
@@ -63,7 +61,6 @@ const DEFAULT_SETTINGS: PluginSettings = {
 
   // vault / assets
   assetsFolder: 'assets',
-  assetsRoute: '/assets/',
   enableAssetsVaultFallback: true,
 };
 
