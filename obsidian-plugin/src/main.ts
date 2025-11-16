@@ -8,7 +8,10 @@ import { decryptApiKey, encryptApiKey } from './lib/api-key-crypto';
 import { GuidGeneratorAdapter } from './lib/guid-generator.adapter';
 import { NoticeProgressAdapter } from './lib/notice-progress.adapter';
 import { ObsidianVaultAdapter } from './lib/obsidian-vault.adapter';
-import { testVpsConnection } from './lib/services/http-connection.service';
+import {
+  TestConnectionResult,
+  testVpsConnection,
+} from './lib/services/http-connection.service';
 import { PublishToPersonalVpsSettingTab } from './lib/setting-tab';
 
 import { PublishToSiteUseCase } from 'core-publishing/src';
@@ -372,9 +375,16 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
 
     const vps = settings.vpsConfigs[0];
 
-    const res = await testVpsConnection(vps);
+    const res: TestConnectionResult = await testVpsConnection(vps);
 
-    switch (res) {
+    if (res.message) {
+      console.log(
+        '[PublishToPersonalVps] Test connection message:',
+        res.message
+      );
+    }
+
+    switch (res.status) {
       case 'success':
         new Notice(t.settings.testConnection.success);
         break;
