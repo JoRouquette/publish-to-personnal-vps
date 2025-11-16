@@ -1,27 +1,20 @@
+import { ContentSanitizer } from '../domain/ContentSanitizer.js';
 import { FolderConfig } from '../domain/FolderConfig.js';
-import { PublishableNote } from '../domain/PublishableNote';
-import { PublishPluginSettings } from '../domain/PublishPluginSettings';
-import {
-  ContentSanitizer,
-  DefaultContentSanitizer,
-} from '../domain/services/content-sanitizer';
-import { UploaderPort } from '../ports/uploader-port';
-import { VaultPort } from '../ports/vault-port';
-import type { ProgressPort } from '../ports/progress-port';
+import { IgnoreRule } from '../domain/IgnoreRule.js';
+import { PublishableNote } from '../domain/PublishableNote.js';
+import { PublishPluginSettings } from '../domain/PublishPluginSettings.js';
+import { DefaultContentSanitizer } from '../domain/services/default-content-sanitizer.js';
+import type { ProgressPort } from '../ports/progress-port.js';
+import { UploaderPort } from '../ports/uploader-port.js';
+import { VaultPort } from '../ports/vault-port.js';
 
-type IgnoreRule = {
-  property: string;
-  ignoreIf?: boolean;
-  ignoreValues?: (string | number | boolean)[];
-};
-
-export type PublishAllResult =
+export type PublicationResult =
   | { type: 'success'; publishedCount: number }
   | { type: 'noConfig' }
   | { type: 'missingVpsConfig'; foldersWithoutVps: string[] }
   | { type: 'error'; error: unknown };
 
-export class PublishAllUseCase {
+export class PublishToSiteUseCase {
   constructor(
     private readonly vaultPort: VaultPort,
     private readonly uploaderPort: UploaderPort,
@@ -31,7 +24,7 @@ export class PublishAllUseCase {
   async execute(
     settings: PublishPluginSettings,
     progress?: ProgressPort
-  ): Promise<PublishAllResult> {
+  ): Promise<PublicationResult> {
     if (!settings?.vpsConfigs?.length || !settings?.folders?.length) {
       return { type: 'noConfig' };
     }
