@@ -1,3 +1,1 @@
-export interface RawFrontmatter {
-  [key: string]: unknown;
-}
+export type RawFrontmatter = Record<string, unknown>;
