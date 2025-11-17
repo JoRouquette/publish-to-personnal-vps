@@ -1,4 +1,5 @@
 import type { VpsConfig } from 'core-publishing/src/lib/domain/VpsConfig';
+import type { LoggerPort } from 'core-publishing/src/lib/ports/logger-port';
 import { requestUrl } from 'obsidian';
 
 export enum TestConnectionStatus {
@@ -22,7 +23,8 @@ function normalizeBaseUrl(url: string): string {
 }
 
 export async function testVpsConnection(
-  vps: VpsConfig
+  vps: VpsConfig,
+  logger: LoggerPort
 ): Promise<TestConnectionResult> {
   if (!vps.apiKey) return { status: TestConnectionStatus.missingApiKey };
   if (!vps.url) return { status: TestConnectionStatus.invalidUrl };
@@ -40,7 +42,7 @@ export async function testVpsConnection(
     });
 
     if (res.status !== 200) {
-      console.warn(
+      logger.warn(
         '[PublishToPersonalVps] Unexpected response status for ping:',
         res.status
       );
@@ -62,7 +64,7 @@ export async function testVpsConnection(
         message: res.text,
       };
     } catch (e) {
-      console.warn(
+      logger.warn(
         '[PublishToPersonalVps] Invalid JSON in ping response',
         e,
         res.text
@@ -73,7 +75,7 @@ export async function testVpsConnection(
       };
     }
   } catch (e) {
-    console.error('[PublishToPersonalVps] Connection test failed', e);
+    logger.error('[PublishToPersonalVps] Connection test failed', e);
     return {
       status: TestConnectionStatus.failure,
       message: e instanceof Error ? e.message : String(e),

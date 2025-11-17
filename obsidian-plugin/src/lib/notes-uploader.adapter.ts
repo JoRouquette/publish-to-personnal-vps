@@ -3,6 +3,7 @@ import type { PublishableNote } from '../../../core-publishing/src/lib/domain/Pu
 import type { UploaderPort } from '../../../core-publishing/src/lib/ports/uploader-port';
 import type { VpsConfig } from '../../../core-publishing/src/lib/domain/VpsConfig';
 import { DomainFrontmatter, FolderConfig } from 'core-publishing/src';
+import { LoggerPort } from '../../../core-publishing/src/lib/ports/logger-port';
 
 type ApiNote = {
   id: string;
@@ -17,10 +18,16 @@ type ApiNote = {
 };
 
 export class NotesUploaderAdapter implements UploaderPort {
-  constructor(private readonly vpsConfig: VpsConfig) {}
+  constructor(
+    private readonly vpsConfig: VpsConfig,
+    private readonly logger: LoggerPort
+  ) {}
 
   async upload(notes: PublishableNote[]): Promise<void> {
-    if (!Array.isArray(notes) || notes.length === 0) return;
+    if (!Array.isArray(notes) || notes.length === 0) {
+      this.logger.info('No notes to upload.');
+      return;
+    }
 
     const vps = (notes[0] as any).vpsConfig ?? this.vpsConfig;
     const apiKeyPlain = vps.apiKey;
@@ -29,25 +36,51 @@ export class NotesUploaderAdapter implements UploaderPort {
 
     const body = { notes: apiNotes };
 
-    const response = await requestUrl({
-      url: vps.url.replace(/\/$/, '') + '/api/upload',
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKeyPlain,
-      },
-      body: JSON.stringify(body),
-    });
+    this.logger.info(`Uploading ${apiNotes.length} notes to VPS at ${vps.url}`);
 
-    if (response.status < 200 || response.status >= 300) {
-      throw new Error(
-        `Upload failed with status ${response.status}: ${response.text}`
+    try {
+      const response = await requestUrl({
+        url: vps.url.replace(/\/$/, '') + '/api/upload',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKeyPlain,
+        },
+        body: JSON.stringify(body),
+      });
+
+      this.logger.debug(
+        'Upload response status: %d, body: %s',
+        response.status,
+        response.text
       );
-    }
 
-    const json = response.json;
-    if (!json || json.api !== 'ok') {
-      throw new Error(`Upload API returned an error: ${JSON.stringify(json)}`);
+      if (response.status < 200 || response.status >= 300) {
+        this.logger.error(
+          'Upload failed with status %d: %s',
+          response.status,
+          response.text
+        );
+        throw new Error(
+          `Upload failed with status ${response.status}: ${response.text}`
+        );
+      }
+
+      const json = response.json;
+      if (!json || json.api !== 'ok') {
+        this.logger.error(
+          'Upload API returned an error: %s',
+          JSON.stringify(json)
+        );
+        throw new Error(
+          `Upload API returned an error: ${JSON.stringify(json)}`
+        );
+      }
+
+      this.logger.info('Notes uploaded successfully.');
+    } catch (error) {
+      this.logger.error('Exception during upload: %s', String(error));
+      throw error;
     }
   }
 
@@ -64,6 +97,13 @@ export class NotesUploaderAdapter implements UploaderPort {
 
     const nowIso = new Date().toISOString();
 
+    this.logger.debug(
+      'Building ApiNote for noteId=%s, slug=%s, route=%s',
+      note.noteId,
+      slug,
+      route
+    );
+
     return {
       id: note.noteId,
       slug: slug,
@@ -78,18 +118,22 @@ export class NotesUploaderAdapter implements UploaderPort {
 
   private extractFileNameWithoutExt(path: string): string {
     const last = path.split('/').pop() ?? path;
-    return last.replace(/\.[^/.]+$/, '');
+    const result = last.replace(/\.[^/.]+$/, '');
+    this.logger.debug('Extracted file name without extension: %s', result);
+    return result;
     // "Arakišib — .../Angle mort.md" -> "Angle mort"
   }
 
   private slugify(value: string): string {
-    return value
+    const slug = value
       .normalize('NFKD')
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .trim();
+    this.logger.debug('Slugified value: "%s" -> "%s"', value, slug);
+    return slug;
   }
 
   private buildFileRoute(
@@ -110,9 +154,19 @@ export class NotesUploaderAdapter implements UploaderPort {
       .splice(0, -1)
       .join('/');
 
-    return `/${cleanVaultRoute.replace(
+    const route = `/${cleanVaultRoute.replace(
       cleanVaultFolder,
       baseRouteClean
     )}/${slug}`;
+
+    this.logger.debug(
+      'Built file route: baseRoute=%s, vaultFolder=%s, vaultPath=%s, route=%s',
+      baseRouteClean,
+      cleanVaultFolder,
+      note.vaultPath,
+      route
+    );
+
+    return route;
   }
 }

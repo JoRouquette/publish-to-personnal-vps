@@ -2,9 +2,10 @@
 import { App, TAbstractFile, TFile, TFolder } from 'obsidian';
 import type { VaultPort } from '../../../core-publishing/src/lib/ports/vault-port';
 import type { FolderConfig } from '../../../core-publishing/src/lib/domain/FolderConfig';
+import type { LoggerPort } from '../../../core-publishing/src/lib/ports/logger-port';
 
 export class ObsidianVaultAdapter implements VaultPort {
-  constructor(private readonly app: App) {}
+  constructor(private readonly app: App, private readonly logger: LoggerPort) {}
 
   async collectNotesFromFolder(folderCfg: FolderConfig): Promise<{
     notes: Array<{
@@ -22,19 +23,30 @@ export class ObsidianVaultAdapter implements VaultPort {
     }> = [];
 
     const rootPath = folderCfg.vaultFolder?.trim();
-    if (!rootPath) return { notes: result };
+    if (!rootPath) {
+      this.logger.warn('No rootPath specified in FolderConfig', { folderCfg });
+      return { notes: result };
+    }
 
     const root = this.app.vault.getAbstractFileByPath(rootPath);
-    if (!root) return { notes: result };
+    if (!root) {
+      this.logger.warn('Root folder not found in vault', { rootPath });
+      return { notes: result };
+    }
 
     const walk = async (node: TAbstractFile) => {
       if (node instanceof TFolder) {
+        this.logger.debug('Walking folder', { path: node.path });
         for (const child of node.children) {
           await walk(child);
         }
       } else if (node instanceof TFile) {
-        if ((node.extension || '').toLowerCase() !== 'md') return;
+        if ((node.extension || '').toLowerCase() !== 'md') {
+          this.logger.debug('Skipping non-markdown file', { path: node.path });
+          return;
+        }
 
+        this.logger.debug('Reading file', { path: node.path });
         const content = await this.app.vault.read(node);
         const cache = this.app.metadataCache.getFileCache(node);
         const frontmatter: Record<string, any> =
@@ -46,18 +58,20 @@ export class ObsidianVaultAdapter implements VaultPort {
           content,
           frontmatter,
         });
+        this.logger.info('Collected note', { path: node.path });
       }
     };
 
+    this.logger.info('Starting note collection', { rootPath });
     await walk(root);
+    this.logger.info('Finished note collection', {
+      count: result.length,
+      rootPath,
+    });
     return { notes: result };
   }
 
   private computeRelative(filePath: string, folderPath: string): string {
-    // Toujours renvoyer une string :
-    // - direct sous le dossier -> "Fichier.md"
-    // - sous-dossier -> "Sous/Path/Fichier.md"
-    // - si incohérent, fallback: filePath entier
     if (!folderPath) return filePath;
     if (filePath.startsWith(folderPath)) {
       let rel = filePath.slice(folderPath.length);

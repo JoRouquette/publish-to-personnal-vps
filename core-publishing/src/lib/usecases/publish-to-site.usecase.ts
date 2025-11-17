@@ -15,6 +15,7 @@ import { DetectWikilinksUseCase } from './detect-wikilinks.usecase.js';
 import { EvaluateIgnoreRulesUseCase } from './evaluate-ignore-rules.usecase.js';
 import { NormalizeFrontmatterUseCase } from './normalize-frontmatter.usecase.js';
 import { RenderInlineDataviewUseCase } from './render-inline-dataview.usecase.js';
+import type { LoggerPort } from '../ports/logger-port.js';
 
 export type PublicationResult =
   | { type: 'success'; publishedCount: number; notes: PublishableNote[] }
@@ -54,6 +55,7 @@ export class PublishToSiteUseCase {
     private readonly vaultPort: VaultPort,
     private readonly uploaderPort: UploaderPort,
     private readonly guidGenerator: GuidGeneratorPort,
+    private readonly logger: LoggerPort,
     private readonly contentSanitizer: ContentSanitizer = new DefaultContentSanitizer()
   ) {}
 
@@ -61,7 +63,11 @@ export class PublishToSiteUseCase {
     settings: PublishPluginSettings,
     progress?: ProgressPort
   ): Promise<PublicationResult> {
+    const log = this.logger.child({ usecase: 'PublishToSiteUseCase' });
+    log.info('Starting publish-to-site execution');
+
     if (!settings?.vpsConfigs?.length || !settings?.folders?.length) {
+      log.warn('No VPS configs or folders found in settings');
       return { type: 'noConfig' };
     }
 
@@ -85,10 +91,15 @@ export class PublishToSiteUseCase {
     for (const folder of settings.folders) {
       const vpsConfig = vpsById.get(folder.vpsId);
       if (!vpsConfig) {
+        log.warn('Missing VPS config for folder', {
+          folderId: folder.id,
+          vpsId: folder.vpsId,
+        });
         missingVps.push(folder.id);
         continue;
       }
 
+      log.debug('Collecting notes from folder', { folderId: folder.id });
       const { notes } = await this.vaultPort.collectNotesFromFolder(folder);
       for (const n of notes) {
         collected.push({
@@ -103,16 +114,19 @@ export class PublishToSiteUseCase {
     }
 
     if (missingVps.length > 0) {
+      log.error('Some folders are missing VPS configs', { missingVps });
       return { type: 'missingVpsConfig', foldersWithoutVps: missingVps };
     }
 
     if (collected.length === 0) {
+      log.info('No notes collected for publishing');
       progress?.start(0);
       progress?.finish();
       return { type: 'success', publishedCount: 0, notes: [] };
     }
 
     progress?.start(collected.length);
+    log.info('Collected notes', { count: collected.length });
 
     const publishable: PublishableNote[] = [];
 
@@ -130,6 +144,7 @@ export class PublishToSiteUseCase {
       });
 
       if (!eligibility.isPublishable) {
+        log.debug('Note ignored by rules', { vaultPath: raw.vaultPath });
         progress?.advance(1);
         continue;
       }
@@ -160,11 +175,16 @@ export class PublishToSiteUseCase {
       // 2.h) pipeline note : routing
       note = this.computeRouting.execute(note);
 
+      log.debug('Note ready for publishing', {
+        noteId: note.noteId,
+        vaultPath: note.vaultPath,
+      });
       publishable.push(note);
       progress?.advance(1);
     }
 
     if (publishable.length === 0) {
+      log.info('No publishable notes after filtering');
       progress?.finish();
       return { type: 'success', publishedCount: 0, notes: [] };
     }
@@ -184,14 +204,17 @@ export class PublishToSiteUseCase {
     let publishedCount = 0;
 
     try {
-      for (const notes of byVps.values()) {
+      for (const [vpsId, notes] of byVps.entries()) {
+        log.info('Uploading notes to VPS', { vpsId, noteCount: notes.length });
         await this.uploaderPort.upload(notes);
         publishedCount += notes.length;
       }
 
+      log.info('Publishing completed successfully', { publishedCount });
       progress?.finish();
       return { type: 'success', publishedCount, notes: publishable };
     } catch (error) {
+      log.error('Error during publishing', error);
       progress?.finish();
       return { type: 'error', error };
     }

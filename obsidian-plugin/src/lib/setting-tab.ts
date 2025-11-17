@@ -4,13 +4,20 @@ import { getTranslations } from '../i18n';
 import PublishToPersonalVpsPlugin from '../main';
 import { createDefaultFolderConfig } from './utils/createDefaultFolderConfig';
 import { FolderSuggest } from './FolderSuggest';
+import { LoggerPort } from '../../../core-publishing/src/lib/ports/logger-port';
 
 export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
   plugin: PublishToPersonalVpsPlugin;
+  private logger: LoggerPort;
 
-  constructor(app: App, plugin: PublishToPersonalVpsPlugin) {
+  constructor(
+    app: App,
+    plugin: PublishToPersonalVpsPlugin,
+    logger: LoggerPort
+  ) {
     super(app, plugin);
     this.plugin = plugin;
+    this.logger = logger.child({ component: 'SettingTab' });
   }
 
   display(): void {
@@ -22,9 +29,11 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
 
     // Sanity defaults au cas où (défensif)
     if (!Array.isArray(settings.vpsConfigs)) {
+      this.logger.warn('settings.vpsConfigs was not an array, resetting.');
       settings.vpsConfigs = [];
     }
     if (settings.vpsConfigs.length === 0) {
+      this.logger.info('No VPS config found, creating default.');
       settings.vpsConfigs.push({
         id: 'default',
         name: 'VPS',
@@ -35,15 +44,21 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
     const vps = settings.vpsConfigs[0];
 
     if (!Array.isArray(settings.folders)) {
+      this.logger.warn('settings.folders was not an array, resetting.');
       settings.folders = [];
     }
     if (!settings.ignoreRules) {
+      this.logger.info('No ignoreRules found, initializing empty array.');
       settings.ignoreRules = [];
     }
     if (!settings.assetsFolder) {
+      this.logger.info('No assetsFolder found, setting default "assets".');
       settings.assetsFolder = 'assets';
     }
     if (settings.enableAssetsVaultFallback == null) {
+      this.logger.info(
+        'enableAssetsVaultFallback not set, defaulting to true.'
+      );
       settings.enableAssetsVaultFallback = true;
     }
 
@@ -71,6 +86,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
           .addOption('fr', 'Français')
           .setValue(settings.locale ?? 'system')
           .onChange(async (value) => {
+            this.logger.info('Language changed', { locale: value });
             settings.locale = value as any;
             await this.plugin.saveSettings();
             this.display(); // re-render pour appliquer les nouvelles traductions
@@ -95,15 +111,18 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
     new Setting(vaultBlock)
       .setName(t.settings.vault?.assetsFolderLabel)
       .setDesc(t.settings.vault?.assetsFolderDescription)
-      .addText((text) =>
+      .addText((text) => {
         text
           .setPlaceholder('assets')
           .setValue(settings.assetsFolder || 'assets')
           .onChange(async (value) => {
+            this.logger.debug('Assets folder changed', { value });
             settings.assetsFolder = value.trim() || 'assets';
             await this.plugin.saveSettings();
-          })
-      );
+          });
+
+        new FolderSuggest(this.app, text.inputEl);
+      });
 
     // Fallback de recherche des assets dans tout le vault
     new Setting(vaultBlock)
@@ -113,6 +132,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
         toggle
           .setValue(settings.enableAssetsVaultFallback)
           .onChange(async (value) => {
+            this.logger.debug('enableAssetsVaultFallback changed', { value });
             settings.enableAssetsVaultFallback = value;
             await this.plugin.saveSettings();
           })
@@ -129,6 +149,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
 
     // Si aucun dossier, on en crée un par défaut lié au VPS courant
     if (settings.folders.length === 0) {
+      this.logger.info('No folder config found, creating default.');
       settings.folders.push(createDefaultFolderConfig(vps.id));
     }
 
@@ -152,12 +173,14 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
       folderSetting.addButton((btn) => {
         btn.setIcon('trash').onClick(async () => {
           if (this.plugin.settings.folders.length <= 1) {
+            this.logger.warn('Attempted to delete last folder, forbidden.');
             new Notice(
               t.settings.folders.deleteLastForbidden ??
                 'At least one folder is required.'
             );
             return;
           }
+          this.logger.info('Folder deleted', { index, folder: folderCfg });
           this.plugin.settings.folders.splice(index, 1);
           await this.plugin.saveSettings();
           this.display();
@@ -174,6 +197,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
           .setPlaceholder('Blog')
           .setValue(folderCfg.vaultFolder)
           .onChange(async (value) => {
+            this.logger.debug('Folder vaultFolder changed', { index, value });
             folderCfg.vaultFolder = value.trim();
             await this.plugin.saveSettings();
           });
@@ -198,7 +222,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
             if (!route.startsWith('/')) {
               route = '/' + route;
             }
-            // On laisse la logique finer côté compute-routing, ici on ne fait que le minimum
+            this.logger.debug('Folder routeBase changed', { index, route });
             folderCfg.routeBase = route;
             await this.plugin.saveSettings();
           })
@@ -213,6 +237,10 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
         toggle
           .setValue(folderCfg.sanitization?.removeFencedCodeBlocks ?? true)
           .onChange(async (value) => {
+            this.logger.debug('Sanitization.removeFencedCodeBlocks changed', {
+              index,
+              value,
+            });
             if (!folderCfg.sanitization) {
               folderCfg.sanitization = { removeFencedCodeBlocks: value };
             } else {
@@ -232,6 +260,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
     btnAddFolder.addClass('mod-cta');
     btnAddFolder.onclick = async () => {
       const vpsId = settings.vpsConfigs?.[0]?.id ?? 'default';
+      this.logger.info('Adding new folder config', { vpsId });
       this.plugin.settings.folders.push(createDefaultFolderConfig(vpsId));
       await this.plugin.saveSettings();
       this.display();
@@ -258,6 +287,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
           .setPlaceholder('frontmatter property')
           .setValue(rule.property ?? '')
           .onChange(async (value) => {
+            this.logger.debug('Ignore rule property changed', { index, value });
             rule.property = value.trim();
             await this.plugin.saveSettings();
           })
@@ -280,6 +310,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
           )
           .setValue(mode)
           .onChange(async (value) => {
+            this.logger.debug('Ignore rule mode changed', { index, value });
             if (value === 'boolean') {
               rule.ignoreValues = undefined;
               if (typeof rule.ignoreIf !== 'boolean') {
@@ -303,6 +334,10 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
             .addOption('false', 'false')
             .setValue(rule.ignoreIf === false ? 'false' : 'true')
             .onChange(async (value) => {
+              this.logger.debug('Ignore rule boolean value changed', {
+                index,
+                value,
+              });
               rule.ignoreIf = value === 'true';
               await this.plugin.saveSettings();
             })
@@ -313,6 +348,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
             .setPlaceholder('val1, val2, val3')
             .setValue((rule.ignoreValues ?? []).join(', '))
             .onChange(async (value) => {
+              this.logger.debug('Ignore rule values changed', { index, value });
               rule.ignoreValues = value
                 .split(',')
                 .map((v) => v.trim())
@@ -329,6 +365,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
             t.settings.ignoreRules.deleteButton ?? 'Delete ignore rule'
           )
           .onClick(async () => {
+            this.logger.info('Ignore rule deleted', { index, rule });
             settings.ignoreRules?.splice(index, 1);
             await this.plugin.saveSettings();
             this.display();
@@ -345,6 +382,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
     btnAddIgnoreRule.addClass('mod-cta');
     btnAddIgnoreRule.onclick = async () => {
       const rules = settings.ignoreRules ?? [];
+      this.logger.info('Adding new ignore rule');
       rules.push({
         property: 'publish',
         ignoreIf: false,
@@ -371,6 +409,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
           .setPlaceholder('VPS')
           .setValue(vps.name)
           .onChange(async (value) => {
+            this.logger.debug('VPS name changed', { value });
             vps.name = value.trim();
             await this.plugin.saveSettings();
           })
@@ -384,6 +423,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
           .setPlaceholder('https://...')
           .setValue(vps.url)
           .onChange(async (value) => {
+            this.logger.debug('VPS url changed', { value });
             vps.url = value.trim();
             await this.plugin.saveSettings();
           })
@@ -397,6 +437,7 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
           .setPlaceholder('********')
           .setValue(vps.apiKey)
           .onChange(async (value) => {
+            this.logger.debug('VPS apiKey changed');
             vps.apiKey = value.trim();
             await this.plugin.saveSettings();
           })
@@ -417,8 +458,11 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
     testBtn.addClass('mod-cta');
     testBtn.onclick = async () => {
       try {
+        this.logger.info('Testing VPS connection');
         await this.plugin.testConnection();
+        this.logger.info('VPS connection test succeeded');
       } catch (e) {
+        this.logger.error('VPS connection test failed', e);
         console.error('[PublishToPersonalVps] Connection test failed', e);
       }
     };
