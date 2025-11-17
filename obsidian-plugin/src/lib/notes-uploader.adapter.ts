@@ -2,6 +2,7 @@ import { requestUrl } from 'obsidian';
 import type { PublishableNote } from '../../../core-publishing/src/lib/domain/PublishableNote';
 import type { UploaderPort } from '../../../core-publishing/src/lib/ports/uploader-port';
 import type { VpsConfig } from '../../../core-publishing/src/lib/domain/VpsConfig';
+import { DomainFrontmatter, FolderConfig } from 'core-publishing/src';
 
 type ApiNote = {
   id: string;
@@ -10,12 +11,7 @@ type ApiNote = {
   relativePath?: string;
   vaultPath: string;
   markdown: string;
-  frontmatter: {
-    title: string;
-    description: string;
-    date: string;
-    tags: string[];
-  };
+  frontmatter: DomainFrontmatter;
   publishedAt: string;
   updatedAt: string;
 };
@@ -58,43 +54,26 @@ export class NotesUploaderAdapter implements UploaderPort {
   // #region: private helpers
 
   private buildApiNote(note: PublishableNote): ApiNote {
-    const fm: any = note.frontmatter ?? {};
+    const fm: DomainFrontmatter = note.frontmatter ?? {};
 
-    const rawSlug =
-      fm.slug ?? fm.title ?? this.extractFileNameWithoutExt(note.vaultPath);
+    const rawSlug = this.extractFileNameWithoutExt(note.vaultPath);
 
     const slug = this.slugify(rawSlug);
 
-    const routeBase = (note.folderConfig?.routeBase ?? '').replace(/\/+$/, '');
-
-    let route = `${routeBase ? routeBase : ''}/${
-      note.relativePath
-    }/${slug}`.replace(/\/{2,}/g, '/');
-
-    if (!route.startsWith('/')) route = `/${route}`;
+    const route = this.buildFileRoute(note.folderConfig, note, slug);
 
     const nowIso = new Date().toISOString();
-    const publishedAt =
-      this.toIsoString(fm.publishedAt) ?? this.toIsoString(fm.date) ?? nowIso;
-
-    const updatedAt = this.toIsoString(fm.updatedAt) ?? publishedAt;
 
     return {
-      id: note.relativePath ?? note.vaultPath ?? route,
-      slug,
+      id: note.noteId,
+      slug: slug,
       route: route,
       relativePath: note.relativePath,
       vaultPath: note.vaultPath,
       markdown: note.content,
-      frontmatter: {
-        title: fm.title ?? rawSlug,
-        description: fm.description ?? '',
-        date: this.toIsoString(fm.date) ?? publishedAt,
-        tags: this.toStringArray(fm.tags),
-      },
-      publishedAt,
-      updatedAt,
-    };
+      frontmatter: note.frontmatter,
+      publishedAt: nowIso,
+    } as ApiNote;
   }
 
   private extractFileNameWithoutExt(path: string): string {
@@ -113,41 +92,27 @@ export class NotesUploaderAdapter implements UploaderPort {
       .trim();
   }
 
-  private toIsoString(value: unknown): string | null {
-    if (!value) return null;
-    if (value instanceof Date) {
-      return isNaN(value.getTime()) ? null : value.toISOString();
-    }
-    if (typeof value === 'string') {
-      const d = new Date(value);
-      return isNaN(d.getTime()) ? null : d.toISOString();
-    }
-    if (typeof (value as any).toISOString === 'function') {
-      try {
-        const iso = (value as any).toISOString();
-        const d = new Date(iso);
-        return isNaN(d.getTime()) ? null : d.toISOString();
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
+  private buildFileRoute(
+    folderConfig: FolderConfig,
+    note: PublishableNote,
+    slug: string
+  ): string {
+    const baseRouteClean = folderConfig.routeBase?.replace(/\/$/, '') ?? '';
 
-  private toStringArray(tags: unknown): string[] {
-    if (!tags) return [];
-    if (Array.isArray(tags)) {
-      return tags
-        .map((t) => (typeof t === 'string' ? t : String(t)))
-        .map((t) => t.trim())
-        .filter(Boolean);
-    }
-    if (typeof tags === 'string') {
-      return tags
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean);
-    }
-    return [];
+    const cleanVaultFolder = folderConfig.vaultFolder
+      .replace(/^\//, '')
+      .replace(/\/$/, '');
+
+    // Remove leading slash and filename
+    const cleanVaultRoute = note.vaultPath
+      .replace(/^\//, '')
+      .split('/')
+      .splice(0, -1)
+      .join('/');
+
+    return `/${cleanVaultRoute.replace(
+      cleanVaultFolder,
+      baseRouteClean
+    )}/${slug}`;
   }
 }
