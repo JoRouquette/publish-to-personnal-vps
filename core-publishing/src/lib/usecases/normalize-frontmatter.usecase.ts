@@ -1,5 +1,3 @@
-// core-publishing/src/lib/usecases/normalize-frontmatter.usecase.ts
-import type { RawFrontmatter } from '../domain/RawFrontmatter';
 import type { DomainFrontmatter } from '../domain/DomainFrontmatter';
 
 function setNestedValue(
@@ -26,13 +24,13 @@ function setNestedValue(
   }
 }
 
-export interface NormalizeFrontmatterInput {
-  raw: RawFrontmatter | undefined;
-}
-
 export class NormalizeFrontmatterUseCase {
-  execute(input: NormalizeFrontmatterInput): DomainFrontmatter {
-    const flat: RawFrontmatter = input.raw ? { ...input.raw } : {};
+  execute(input?: Record<string, unknown>): DomainFrontmatter {
+    if (!input) {
+      return { flat: {}, nested: {} };
+    }
+
+    const flat: Record<string, unknown> = { ...input };
     const nested: Record<string, unknown> = {};
 
     for (const [key, value] of Object.entries(flat)) {

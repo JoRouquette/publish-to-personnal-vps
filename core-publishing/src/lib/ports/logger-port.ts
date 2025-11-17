@@ -1,9 +1,9 @@
 export enum LogLevel {
-  debug = 1 << 1,
-  info = 1 << 2,
-  warn = 1 << 3,
-  error = 1 << 4,
-  none = 1 << 5,
+  none = 0,
+  debug = 1,
+  info = 2,
+  warn = 4,
+  error = 8,
 }
 
 export interface LoggerPort {
@@ -11,6 +11,7 @@ export interface LoggerPort {
   get level(): LogLevel;
 
   child(context: Record<string, unknown>): LoggerPort;
+
   debug(message: string, ...args: unknown[]): void;
   info(message: string, ...args: unknown[]): void;
   warn(message: string, ...args: unknown[]): void;

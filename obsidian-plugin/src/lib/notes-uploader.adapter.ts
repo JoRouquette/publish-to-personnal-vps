@@ -7,14 +7,16 @@ import { LoggerPort } from '../../../core-publishing/src/lib/ports/logger-port';
 
 type ApiNote = {
   id: string;
+  title: string;
   slug: string;
   route: string;
   relativePath?: string;
   vaultPath: string;
   markdown: string;
-  frontmatter: DomainFrontmatter;
+  frontmatter: {
+    tags: string[];
+  } & DomainFrontmatter;
   publishedAt: string;
-  updatedAt: string;
 };
 
 export class NotesUploaderAdapter implements UploaderPort {
@@ -33,7 +35,12 @@ export class NotesUploaderAdapter implements UploaderPort {
     const vps = (notes[0] as any).vpsConfig ?? this.vpsConfig;
     const apiKeyPlain = vps.apiKey;
 
-    const apiNotes: ApiNote[] = notes.map((note) => this.buildApiNote(note));
+    const apiNotes: ApiNote[] = notes.map((note) =>
+      this.buildApiNote(
+        note,
+        this._logger.child({ method: 'upload', noteId: note.noteId })
+      )
+    );
 
     const body = { notes: apiNotes };
 
@@ -57,64 +64,81 @@ export class NotesUploaderAdapter implements UploaderPort {
         response.text
       );
 
+      // Handle HTTP status codes
+      if (response.status === 401) {
+        this._logger.error('Unauthorized (401): Invalid API key.');
+        return;
+      }
+      if (response.status === 403) {
+        this._logger.error('Forbidden (403): Access denied.');
+        return;
+      }
+      if (response.status === 400) {
+        this._logger.error('Bad Request (400):', response.text);
+        return;
+      }
+      if (response.status >= 500) {
+        this._logger.error(`Server error (${response.status}):`, response.text);
+        return;
+      }
       if (response.status < 200 || response.status >= 300) {
         this._logger.error(
-          `Upload failed with status ${response.status}: `,
+          `Unexpected HTTP status (${response.status}):`,
           response.text
         );
-        throw new Error(
-          `Upload failed with status ${response.status}: ${response.text}`
-        );
+        return;
       }
 
+      // Success (2xx)
       const json = response.json;
-      if (!json || json.api !== 'ok') {
-        this._logger.error(
-          'Upload API returned an error:',
-          JSON.stringify(json)
-        );
-        throw new Error(
-          `Upload API returned an error: ${JSON.stringify(json)}`
-        );
-      }
-
-      this._logger.info('Notes uploaded successfully.');
-    } catch (error) {
-      this._logger.error('Exception during upload: %s', String(error));
-      throw error;
+      const publishedCount = json?.publishedCount ?? 0;
+      this._logger.info(
+        `Successfully uploaded ${publishedCount} notes to VPS.`
+      );
+      return;
+    } catch (error: any) {
+      this._logger.error(`Exception during upload: `, error);
+      return;
     }
   }
 
   // #region: private helpers
 
-  private buildApiNote(note: PublishableNote): ApiNote {
-    const rawSlug = this.extractFileNameWithoutExt(note.vaultPath);
+  private buildApiNote(note: PublishableNote, logger: LoggerPort): ApiNote {
+    const title = this.extractFileNameWithoutExt(note.vaultPath);
 
-    const slug = this.slugify(rawSlug);
+    const slug = this.slugify(title);
 
-    const route = this.buildFileRoute(note.folderConfig, note, slug);
+    const route = this.buildFileRoute(
+      note.folderConfig,
+      note,
+      slug,
+      logger.child({ method: 'buildApiNote', noteId: note.noteId })
+    );
 
     const nowIso = new Date().toISOString();
 
-    this._logger.debug(
-      'Building ApiNote for noteId=',
-      note.noteId,
-      'slug=',
-      slug,
-      'route=',
-      route
+    logger.debug(
+      `Building ApiNote for noteId=${note.noteId}, slug=${slug}, route=${route}`
     );
 
-    return {
+    const built: ApiNote = {
       id: note.noteId,
+      title: title,
       slug: slug,
       route: route,
       relativePath: note.relativePath,
       vaultPath: note.vaultPath,
       markdown: note.content,
-      frontmatter: note.frontmatter,
+      frontmatter: {
+        ...note.frontmatter,
+        tags: (note.frontmatter.flat.tags || []) as string[],
+      },
       publishedAt: nowIso,
-    } as ApiNote;
+    };
+    logger.debug('Built ApiNote:', built);
+
+    return built;
   }
 
   private extractFileNameWithoutExt(path: string): string {
@@ -133,43 +157,50 @@ export class NotesUploaderAdapter implements UploaderPort {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .trim();
-    this._logger.debug('Slugified value:', value, ' -> ', slug);
+    this._logger.debug(`Slugified value: ${value} -> ${slug}`);
     return slug;
   }
 
   private buildFileRoute(
     folderConfig: FolderConfig,
     note: PublishableNote,
-    slug: string
+    slug: string,
+    logger: LoggerPort
   ): string {
     const baseRouteClean = folderConfig.routeBase?.replace(/\/$/, '') ?? '';
+    logger.debug(
+      `Base route clean: ${baseRouteClean} from ${folderConfig.routeBase}`
+    );
 
     const cleanVaultFolder = folderConfig.vaultFolder
       .replace(/^\//, '')
       .replace(/\/$/, '');
+    logger.debug(
+      `Clean vault folder: ${cleanVaultFolder} from ${folderConfig.vaultFolder}`
+    );
 
-    // Remove leading slash and filename
     const cleanVaultRoute = note.vaultPath
       .replace(/^\//, '')
       .split('/')
       .splice(0, -1)
       .join('/');
-
-    const route = `/${cleanVaultRoute.replace(
-      cleanVaultFolder,
-      baseRouteClean
-    )}/${slug}`;
-
-    this._logger.debug(
-      'Built file route: baseRoute=',
-      baseRouteClean,
-      'vaultFolder=',
-      cleanVaultFolder,
-      'vaultPath=',
-      note.vaultPath,
-      'route=',
-      route
+    logger.debug(
+      `Clean vault route: ${cleanVaultRoute} from ${note.vaultPath}`
     );
+
+    const relativePathFromFolder = cleanVaultFolder
+      ? cleanVaultRoute.replace(new RegExp(`^${cleanVaultFolder}`), '')
+      : cleanVaultRoute;
+    logger.debug(
+      `Relative path from folder: ${relativePathFromFolder} (cleanVaultFolder=${cleanVaultFolder}, cleanVaultRoute=${cleanVaultRoute})`
+    );
+
+    const route = `${baseRouteClean}/${relativePathFromFolder}/${slug}`.replace(
+      /\/+/g,
+      '/'
+    );
+
+    logger.debug(`Built file route: ${route}`);
 
     return route;
   }
