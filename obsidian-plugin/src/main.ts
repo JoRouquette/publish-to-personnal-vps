@@ -26,7 +26,7 @@ import { ObsidianAssetsVaultAdapter } from './lib/obsidian-assets-vault.adapter'
 import { AssetsUploaderAdapter } from './lib/assets-uploader.adapter';
 import { NotesUploaderAdapter } from './lib/notes-uploader.adapter';
 import { ConsoleLoggerAdapter } from './lib/console-logger.adapter';
-import { log } from 'console';
+import { LogLevel } from 'core-publishing/src/lib/ports/logger-port';
 
 type PluginLocale = 'en' | 'fr' | 'system';
 
@@ -126,25 +126,12 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
   // Debugging / logging
   // ---------------------------------------------------------------------------
 
-  debug: boolean = false;
-  logger: ConsoleLoggerAdapter = new ConsoleLoggerAdapter({
-    plugin: 'PublishToPersonalVps',
-  });
-
-  get isDebuggingEnabled(): boolean {
-    return this.debug;
-  }
-
-  setDebuggingEnabled(
-    enabled: boolean,
-    level?: 'debug' | 'info' | 'warn' | 'error'
-  ): void {
-    this.debug = enabled;
-
-    if (enabled && level) {
-      this.logger.level = level;
-    }
-  }
+  logger: ConsoleLoggerAdapter = new ConsoleLoggerAdapter(
+    {
+      plugin: 'PublishToPersonalVps',
+    },
+    LogLevel.debug
+  );
 
   // ---------------------------------------------------------------------------
   // Cycle de vie du plugin
@@ -153,14 +140,14 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     await this.loadSettings();
     const { t } = getTranslations(this.app, this.settings);
 
+    this.logger.debug('Plugin loading...');
+
     // Settings UI
     this.addSettingTab(
       new PublishToPersonalVpsSettingTab(
         this.app,
         this,
-        this.logger.child({
-          module: 'PublishToPersonalVpsSettingTab',
-        })
+        this.logger.child({ module: 'PublishToPersonalVpsSettingTab' })
       )
     );
 
@@ -195,10 +182,12 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
       try {
         await this.publishToSite();
       } catch (e) {
-        console.error('[PublishToPersonalVps] Publish failed from ribbon', e);
+        console.error('Publish failed from ribbon', e);
         new Notice(t.plugin.publishError);
       }
     });
+
+    this.logger.debug('Plugin loaded.');
   }
 
   // ---------------------------------------------------------------------------
@@ -220,10 +209,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
         snapshotRaw = JSON.parse(content);
       }
     } catch (e) {
-      this.logger.error(
-        '[PublishToPersonalVps] Failed to load snapshot settings',
-        e
-      );
+      this.logger.error('Failed to load snapshot settings', e);
     }
 
     const merged: PluginSettings = {
@@ -251,13 +237,13 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
 
     // 1. Validation basique : au moins un VPS et un dossier
     if (!settings.vpsConfigs || settings.vpsConfigs.length === 0) {
-      this.logger.error('[PublishToPersonalVps] No VPS config defined');
+      this.logger.error('No VPS config defined');
       new Notice(t.settings.errors?.missingVpsConfig ?? 'No VPS configured');
       return;
     }
 
     if (!settings.folders || settings.folders.length === 0) {
-      this.logger.warn('[PublishToPersonalVps] No folders configured');
+      this.logger.warn('No folders configured');
       new Notice('⚠️ No folders configured for publishing.');
       return;
     }
@@ -309,10 +295,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     }
 
     if (result.type === 'missingVpsConfig') {
-      this.logger.warn(
-        '[PublishToPersonalVps] Missing VPS for folders:',
-        result.foldersWithoutVps
-      );
+      this.logger.warn('Missing VPS for folders:', result.foldersWithoutVps);
       new Notice('⚠️ Some folder(s) have no VPS configured (see console).');
       return;
     }
@@ -386,10 +369,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
         break;
       }
       case 'error': {
-        this.logger.error(
-          '[PublishToPersonalVps] Error while publishing assets:',
-          assetsResult.error
-        );
+        this.logger.error('Error while publishing assets:', assetsResult.error);
         new Notice(
           `✅ Published ${publishedNotesCount} note(s), but assets publication failed (see console).`
         );
@@ -399,10 +379,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
         const { publishedAssetsCount, failures } = assetsResult;
 
         if (failures.length > 0) {
-          this.logger.warn(
-            '[PublishToPersonalVps] Some assets failed to publish:',
-            failures
-          );
+          this.logger.warn('Some assets failed to publish:', failures);
           new Notice(
             `✅ Published ${publishedNotesCount} note(s) and ${publishedAssetsCount} asset(s), with ${failures.length} asset failure(s) (see console).`
           );
@@ -424,7 +401,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     const settings = this.settings;
 
     if (!settings?.vpsConfigs || settings.vpsConfigs.length === 0) {
-      this.logger.error('[PublishToPersonalVps] No VPS config defined');
+      this.logger.error('No VPS config defined');
       new Notice(t.settings.errors.missingVpsConfig);
       return;
     }
@@ -439,10 +416,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     );
 
     if (res.message) {
-      this.logger.info(
-        '[PublishToPersonalVps] Test connection message:',
-        res.message
-      );
+      this.logger.info('Test connection message:', res.message);
     }
 
     switch (res.status) {

@@ -18,14 +18,15 @@ type ApiNote = {
 };
 
 export class NotesUploaderAdapter implements UploaderPort {
-  constructor(
-    private readonly vpsConfig: VpsConfig,
-    private readonly logger: LoggerPort
-  ) {}
+  private readonly _logger: LoggerPort;
+
+  constructor(private readonly vpsConfig: VpsConfig, logger: LoggerPort) {
+    this._logger = logger;
+  }
 
   async upload(notes: PublishableNote[]): Promise<void> {
     if (!Array.isArray(notes) || notes.length === 0) {
-      this.logger.info('No notes to upload.');
+      this._logger.info('No notes to upload.');
       return;
     }
 
@@ -36,7 +37,9 @@ export class NotesUploaderAdapter implements UploaderPort {
 
     const body = { notes: apiNotes };
 
-    this.logger.info(`Uploading ${apiNotes.length} notes to VPS at ${vps.url}`);
+    this._logger.info(
+      `Uploading ${apiNotes.length} notes to VPS at ${vps.url}`
+    );
 
     try {
       const response = await requestUrl({
@@ -49,16 +52,14 @@ export class NotesUploaderAdapter implements UploaderPort {
         body: JSON.stringify(body),
       });
 
-      this.logger.debug(
-        'Upload response status: %d, body: %s',
-        response.status,
+      this._logger.debug(
+        `Upload response status: ${response.status}, body: `,
         response.text
       );
 
       if (response.status < 200 || response.status >= 300) {
-        this.logger.error(
-          'Upload failed with status %d: %s',
-          response.status,
+        this._logger.error(
+          `Upload failed with status ${response.status}: `,
           response.text
         );
         throw new Error(
@@ -68,8 +69,8 @@ export class NotesUploaderAdapter implements UploaderPort {
 
       const json = response.json;
       if (!json || json.api !== 'ok') {
-        this.logger.error(
-          'Upload API returned an error: %s',
+        this._logger.error(
+          'Upload API returned an error:',
           JSON.stringify(json)
         );
         throw new Error(
@@ -77,9 +78,9 @@ export class NotesUploaderAdapter implements UploaderPort {
         );
       }
 
-      this.logger.info('Notes uploaded successfully.');
+      this._logger.info('Notes uploaded successfully.');
     } catch (error) {
-      this.logger.error('Exception during upload: %s', String(error));
+      this._logger.error('Exception during upload: %s', String(error));
       throw error;
     }
   }
@@ -87,8 +88,6 @@ export class NotesUploaderAdapter implements UploaderPort {
   // #region: private helpers
 
   private buildApiNote(note: PublishableNote): ApiNote {
-    const fm: DomainFrontmatter = note.frontmatter ?? {};
-
     const rawSlug = this.extractFileNameWithoutExt(note.vaultPath);
 
     const slug = this.slugify(rawSlug);
@@ -97,10 +96,12 @@ export class NotesUploaderAdapter implements UploaderPort {
 
     const nowIso = new Date().toISOString();
 
-    this.logger.debug(
-      'Building ApiNote for noteId=%s, slug=%s, route=%s',
+    this._logger.debug(
+      'Building ApiNote for noteId=',
       note.noteId,
+      'slug=',
       slug,
+      'route=',
       route
     );
 
@@ -119,7 +120,7 @@ export class NotesUploaderAdapter implements UploaderPort {
   private extractFileNameWithoutExt(path: string): string {
     const last = path.split('/').pop() ?? path;
     const result = last.replace(/\.[^/.]+$/, '');
-    this.logger.debug('Extracted file name without extension: %s', result);
+    this._logger.debug('Extracted file name without extension:', result);
     return result;
     // "Arakišib — .../Angle mort.md" -> "Angle mort"
   }
@@ -132,7 +133,7 @@ export class NotesUploaderAdapter implements UploaderPort {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .trim();
-    this.logger.debug('Slugified value: "%s" -> "%s"', value, slug);
+    this._logger.debug('Slugified value:', value, ' -> ', slug);
     return slug;
   }
 
@@ -159,11 +160,14 @@ export class NotesUploaderAdapter implements UploaderPort {
       baseRouteClean
     )}/${slug}`;
 
-    this.logger.debug(
-      'Built file route: baseRoute=%s, vaultFolder=%s, vaultPath=%s, route=%s',
+    this._logger.debug(
+      'Built file route: baseRoute=',
       baseRouteClean,
+      'vaultFolder=',
       cleanVaultFolder,
+      'vaultPath=',
       note.vaultPath,
+      'route=',
       route
     );
 

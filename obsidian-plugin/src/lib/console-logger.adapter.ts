@@ -1,76 +1,81 @@
-import { LoggerPort } from 'core-publishing/src/lib/ports/logger-port';
-
-enum LogLevel {
-  debug = 1 << 1,
-  info = 1 << 2,
-  warn = 1 << 3,
-  error = 1 << 4,
-  none = 1 << 5,
-}
+import {
+  LoggerPort,
+  LogLevel,
+} from 'core-publishing/src/lib/ports/logger-port';
 
 export class ConsoleLoggerAdapter implements LoggerPort {
-  private _level?: LogLevel;
+  private _level: LogLevel = LogLevel.none;
+  private _context: Record<string, unknown>;
 
-  constructor(private context: Record<string, unknown>) {
-    this._level = LogLevel.none;
+  constructor(context: Record<string, unknown>, level?: LogLevel) {
+    this._context = context;
+    this.level = level ?? LogLevel.none;
   }
 
-  public set level(level: 'debug' | 'info' | 'warn' | 'error') {
+  public set level(level: LogLevel) {
     switch (level) {
-      case 'debug':
+      case LogLevel.debug:
         this._level =
-          LogLevel.debug + LogLevel.info + LogLevel.warn + LogLevel.error;
+          LogLevel.debug | LogLevel.info | LogLevel.warn | LogLevel.error;
         break;
-      case 'info':
-        this._level = LogLevel.info + LogLevel.warn + LogLevel.error;
+      case LogLevel.info:
+        this._level = LogLevel.info | LogLevel.warn | LogLevel.error;
         break;
-      case 'warn':
-        this._level = LogLevel.warn + LogLevel.error;
+      case LogLevel.warn:
+        this._level = LogLevel.warn | LogLevel.error;
         break;
-      case 'error':
+      case LogLevel.error:
         this._level = LogLevel.error;
         break;
       default:
         this._level = LogLevel.none;
-        break;
     }
+  }
+
+  public get level(): LogLevel {
+    return this._level;
+  }
+
+  child(context: Record<string, unknown>): ConsoleLoggerAdapter {
+    return new ConsoleLoggerAdapter(
+      { ...this._context, ...context },
+      this._level
+    );
   }
 
   debug(message: string, ...args: unknown[]): void {
-    if (this._level && (this._level & LogLevel.debug) === 0) {
+    if ((this._level & LogLevel.debug) === 0) {
       return;
     }
 
-    console.debug(Date.now(), this.context, message, ...args);
+    console.debug(this.getCurrentDatetime(), this._context, message, ...args);
   }
 
   info(message: string, ...args: unknown[]): void {
-    if (this._level && (this._level & LogLevel.info) === 0) {
+    if ((this._level & LogLevel.info) === 0) {
       return;
     }
 
-    console.info(Date.now(), this.context, message, ...args);
+    console.info(this.getCurrentDatetime(), this._context, message, ...args);
   }
 
   warn(message: string, ...args: unknown[]): void {
-    if (this._level && (this._level & LogLevel.warn) === 0) {
+    if ((this._level & LogLevel.warn) === 0) {
       return;
     }
 
-    console.warn(Date.now(), this.context, message, ...args);
+    console.warn(this.getCurrentDatetime(), this._context, message, ...args);
   }
 
   error(message: string, ...args: unknown[]): void {
-    if (this._level && (this._level & LogLevel.error) === 0) {
+    if ((this._level & LogLevel.error) === 0) {
       return;
     }
 
-    console.error(Date.now(), this.context, message, ...args);
+    console.error(this.getCurrentDatetime(), this._context, message, ...args);
   }
 
-  child: (context: Record<string, unknown>) => ConsoleLoggerAdapter = (
-    context: Record<string, unknown>
-  ): ConsoleLoggerAdapter => {
-    return new ConsoleLoggerAdapter({ ...this.context, ...context });
-  };
+  private getCurrentDatetime(): string {
+    return new Date().toISOString();
+  }
 }

@@ -31,11 +31,15 @@ export type AssetsPublicationResult =
  * Orchestrates asset resolution and upload for a set of notes.
  */
 export class PublishAssetsToSiteUseCase {
+  private readonly _logger: LoggerPort;
+
   constructor(
     private readonly assetsVaultPort: AssetsVaultPort,
     private readonly assetsUploaderPort: UploaderPort,
-    private readonly logger: LoggerPort
-  ) {}
+    logger: LoggerPort
+  ) {
+    this._logger = logger;
+  }
 
   async execute(params: {
     notes: NoteWithAssets[];
@@ -45,13 +49,8 @@ export class PublishAssetsToSiteUseCase {
   }): Promise<AssetsPublicationResult> {
     const { notes, assetsFolder, enableAssetsVaultFallback, progress } = params;
 
-    const logger = this.logger.child({ usecase: 'PublishAssetsToSiteUseCase' });
-
-    logger.info(
-      'Starting asset publication for %d notes (assetsFolder=%s, enableAssetsVaultFallback=%s)',
-      notes.length,
-      assetsFolder,
-      enableAssetsVaultFallback
+    this._logger.info(
+      `Starting asset publication for ${notes.length} notes (assetsFolder=${assetsFolder}, enableAssetsVaultFallback=${enableAssetsVaultFallback})`
     );
 
     // 1. Collect all assets to publish
@@ -68,7 +67,7 @@ export class PublishAssetsToSiteUseCase {
     );
 
     if (notesWithAssets.length === 0) {
-      logger.info('No notes with assets found, nothing to publish.');
+      this._logger.info('No notes with assets found, nothing to publish.');
       return { type: 'noAssets' };
     }
 
@@ -76,9 +75,9 @@ export class PublishAssetsToSiteUseCase {
     for (const note of notesWithAssets) {
       for (const asset of note.assets ?? []) {
         try {
-          logger.debug(
-            'Resolving asset for noteId=%s asset=%o',
-            note.noteId,
+          this._logger.debug(
+            `Resolving asset for noteId ${note.noteId}`,
+            'asset=',
             asset
           );
           const resolved = await this.assetsVaultPort.resolveAssetForNote(
@@ -89,17 +88,16 @@ export class PublishAssetsToSiteUseCase {
           );
           collected.push({ noteId: note.noteId, asset, resolved });
           totalAssets += 1;
-          logger.debug(
-            'Resolved asset for noteId=%s asset=%o resolved=%o',
-            note.noteId,
+          this._logger.debug(
+            `Resolved asset for noteId ${note.noteId}`,
+            'asset=',
             asset,
+            `resolved= `,
             !!resolved
           );
         } catch (error) {
-          logger.warn(
-            'Failed to resolve asset for noteId=%s asset=%o: %o',
-            note.noteId,
-            asset,
+          this._logger.warn(
+            `Failed to resolve asset for noteId ${note.noteId} asset= ${asset}: `,
             error
           );
           failures.push({
@@ -113,9 +111,8 @@ export class PublishAssetsToSiteUseCase {
     }
 
     if (collected.length === 0 && failures.length > 0) {
-      logger.info(
-        'No assets resolved, but failures occurred: %d failures',
-        failures.length
+      this._logger.info(
+        `No assets resolved, but failures occurred: ${failures.length} failures`
       );
       return {
         type: 'success',
@@ -125,7 +122,7 @@ export class PublishAssetsToSiteUseCase {
     }
 
     progress?.start(totalAssets);
-    logger.info('Publishing %d assets...', collected.length);
+    this._logger.info(`Publishing ${totalAssets} assets...`);
 
     let publishedAssetsCount = 0;
 
@@ -133,10 +130,8 @@ export class PublishAssetsToSiteUseCase {
       // 2. Upload all resolved assets
       for (const entry of collected) {
         if (!entry.resolved) {
-          logger.warn(
-            'Asset not found for noteId=%s asset=%o',
-            entry.noteId,
-            entry.asset
+          this._logger.warn(
+            `Asset not found for noteId ${entry.noteId} asset= ${entry.asset}`
           );
           failures.push({
             noteId: entry.noteId,
@@ -147,23 +142,17 @@ export class PublishAssetsToSiteUseCase {
           continue;
         }
         try {
-          logger.debug(
-            'Uploading asset for noteId=%s asset=%o',
-            entry.noteId,
-            entry.asset
+          this._logger.debug(
+            `Uploading asset for noteId ${entry.noteId} asset= ${entry.asset}`
           );
           await this.assetsUploaderPort.upload([entry.resolved]);
           publishedAssetsCount += 1;
-          logger.info(
-            'Successfully uploaded asset for noteId=%s asset=%o',
-            entry.noteId,
-            entry.asset
+          this._logger.info(
+            `Successfully uploaded asset for noteId ${entry.noteId} asset= ${entry.asset}`
           );
         } catch (error) {
-          logger.error(
-            'Failed to upload asset for noteId=%s asset=%o: %o',
-            entry.noteId,
-            entry.asset,
+          this._logger.error(
+            `Failed to upload asset for noteId ${entry.noteId} asset= ${entry.asset}: `,
             error
           );
           failures.push({
@@ -177,10 +166,8 @@ export class PublishAssetsToSiteUseCase {
       }
 
       progress?.finish();
-      logger.info(
-        'Asset publication finished: %d assets published, %d failures',
-        publishedAssetsCount,
-        failures.length
+      this._logger.info(
+        `Asset publication finished: ${publishedAssetsCount} assets published, ${failures.length} failures`
       );
       return {
         type: 'success',
@@ -189,7 +176,7 @@ export class PublishAssetsToSiteUseCase {
       };
     } catch (error) {
       progress?.finish();
-      logger.error('Unexpected error during asset publication: %o', error);
+      this._logger.error('Unexpected error during asset publication: ', error);
       return { type: 'error', error };
     }
   }

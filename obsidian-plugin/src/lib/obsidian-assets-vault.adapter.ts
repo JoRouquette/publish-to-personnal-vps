@@ -6,12 +6,11 @@ import type { LoggerPort } from 'core-publishing/src/lib/ports/logger-port';
 import { App, TFile } from 'obsidian';
 
 export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
-  private readonly logger: LoggerPort;
+  private readonly _logger: LoggerPort;
 
   constructor(private readonly app: App, logger: LoggerPort) {
-    // Use a child logger with context for this adapter
-    this.logger = logger.child({ adapter: 'ObsidianAssetsVaultAdapter' });
-    this.logger.debug('ObsidianAssetsVaultAdapter initialized');
+    this._logger = logger;
+    this._logger.debug('ObsidianAssetsVaultAdapter initialized');
   }
 
   async resolveAssetForNote(
@@ -22,7 +21,7 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
   ): Promise<ResolvedAssetFile | null> {
     const normalizedAssetsFolder = normalizeFolder(assetsFolder);
 
-    this.logger.debug('Resolving asset for note', {
+    this._logger.debug('Resolving asset for note', {
       noteVaultPath: note.vaultPath,
       asset,
       assetsFolder: normalizedAssetsFolder,
@@ -32,12 +31,12 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
     // 1. On récupère la "cible" du wikilink d'asset
     const target = this.extractLinkTarget(asset);
     if (!target) {
-      this.logger.warn('Unable to extract link target from asset', asset);
+      this._logger.warn('Unable to extract link target from asset', asset);
       return null;
     }
 
     const allFiles = this.app.vault.getFiles();
-    this.logger.debug('Searching for asset target', {
+    this._logger.debug('Searching for asset target', {
       target,
       assetsFolder: normalizedAssetsFolder,
       enableVaultFallback,
@@ -61,12 +60,12 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
         return f.name === baseName;
       });
       if (file) {
-        this.logger.info('Asset found in assets folder', {
+        this._logger.info('Asset found in assets folder', {
           filePath: file.path,
           assetsFolder: normalizedAssetsFolder,
         });
       } else {
-        this.logger.debug(
+        this._logger.debug(
           'Asset not found in assets folder, will try fallback if enabled',
           { target, assetsFolder: normalizedAssetsFolder }
         );
@@ -81,18 +80,18 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
         return f.name === baseName;
       });
       if (file) {
-        this.logger.info('Asset found in vault (fallback)', {
+        this._logger.info('Asset found in vault (fallback)', {
           filePath: file.path,
         });
       } else {
-        this.logger.debug('Asset not found in vault during fallback', {
+        this._logger.debug('Asset not found in vault during fallback', {
           target,
         });
       }
     }
 
     if (!file) {
-      this.logger.warn('Asset not found in vault', {
+      this._logger.warn('Asset not found in vault', {
         target,
         note: note.vaultPath,
       });
@@ -113,7 +112,7 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
       relativeAssetPath,
     } as ResolvedAssetFile;
 
-    this.logger.debug('Resolved asset file', {
+    this._logger.debug('Resolved asset file', {
       resolved,
     });
 
@@ -129,25 +128,25 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
    *  - sinon parse asset.raw de la forme "![[Tenebra1.jpg|right|300]]"
    */
   private extractLinkTarget(asset: AssetRef): string | null {
-    this.logger.debug('Extracting link target from asset', { asset });
+    this._logger.debug('Extracting link target from asset', { asset });
     const anyAsset = asset as any;
 
     if (typeof anyAsset.fileName === 'string' && anyAsset.fileName.trim()) {
-      this.logger.debug('Link target found via fileName', {
+      this._logger.debug('Link target found via fileName', {
         fileName: anyAsset.fileName,
       });
       return anyAsset.fileName.trim();
     }
 
     if (typeof anyAsset.target === 'string' && anyAsset.target.trim()) {
-      this.logger.debug('Link target found via target', {
+      this._logger.debug('Link target found via target', {
         target: anyAsset.target,
       });
       return anyAsset.target.trim();
     }
 
     if (typeof anyAsset.linkText === 'string' && anyAsset.linkText.trim()) {
-      this.logger.debug('Link target found via linkText', {
+      this._logger.debug('Link target found via linkText', {
         linkText: anyAsset.linkText,
       });
       return anyAsset.linkText.trim();
@@ -160,17 +159,17 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
       const inner = (match ? match[1] : raw).trim();
 
       if (!inner) {
-        this.logger.warn('No inner content found in raw asset', { raw });
+        this._logger.warn('No inner content found in raw asset', { raw });
         return null;
       }
 
       // inner peut contenir des modificateurs ITS: "Tenebra1.jpg|right|300"
       const firstPart = inner.split('|')[0].trim();
-      this.logger.debug('Extracted link target from raw', { firstPart });
+      this._logger.debug('Extracted link target from raw', { firstPart });
       return firstPart || null;
     }
 
-    this.logger.warn('Unable to extract link target from asset', { asset });
+    this._logger.warn('Unable to extract link target from asset', { asset });
     return null;
   }
 }

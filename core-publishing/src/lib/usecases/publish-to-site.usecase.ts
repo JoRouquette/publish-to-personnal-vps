@@ -63,11 +63,10 @@ export class PublishToSiteUseCase {
     settings: PublishPluginSettings,
     progress?: ProgressPort
   ): Promise<PublicationResult> {
-    const log = this.logger.child({ usecase: 'PublishToSiteUseCase' });
-    log.info('Starting publish-to-site execution');
+    this.logger.info('Starting publish-to-site execution');
 
     if (!settings?.vpsConfigs?.length || !settings?.folders?.length) {
-      log.warn('No VPS configs or folders found in settings');
+      this.logger.warn('No VPS configs or folders found in settings');
       return { type: 'noConfig' };
     }
 
@@ -91,7 +90,7 @@ export class PublishToSiteUseCase {
     for (const folder of settings.folders) {
       const vpsConfig = vpsById.get(folder.vpsId);
       if (!vpsConfig) {
-        log.warn('Missing VPS config for folder', {
+        this.logger.warn('Missing VPS config for folder', {
           folderId: folder.id,
           vpsId: folder.vpsId,
         });
@@ -99,7 +98,9 @@ export class PublishToSiteUseCase {
         continue;
       }
 
-      log.debug('Collecting notes from folder', { folderId: folder.id });
+      this.logger.debug('Collecting notes from folder', {
+        folderId: folder.id,
+      });
       const { notes } = await this.vaultPort.collectNotesFromFolder(folder);
       for (const n of notes) {
         collected.push({
@@ -114,19 +115,19 @@ export class PublishToSiteUseCase {
     }
 
     if (missingVps.length > 0) {
-      log.error('Some folders are missing VPS configs', { missingVps });
+      this.logger.error('Some folders are missing VPS configs', { missingVps });
       return { type: 'missingVpsConfig', foldersWithoutVps: missingVps };
     }
 
     if (collected.length === 0) {
-      log.info('No notes collected for publishing');
+      this.logger.info('No notes collected for publishing');
       progress?.start(0);
       progress?.finish();
       return { type: 'success', publishedCount: 0, notes: [] };
     }
 
     progress?.start(collected.length);
-    log.info('Collected notes', { count: collected.length });
+    this.logger.info('Collected notes', { count: collected.length });
 
     const publishable: PublishableNote[] = [];
 
@@ -144,7 +145,9 @@ export class PublishToSiteUseCase {
       });
 
       if (!eligibility.isPublishable) {
-        log.debug('Note ignored by rules', { vaultPath: raw.vaultPath });
+        this.logger.debug('Note ignored by rules', {
+          vaultPath: raw.vaultPath,
+        });
         progress?.advance(1);
         continue;
       }
@@ -175,7 +178,7 @@ export class PublishToSiteUseCase {
       // 2.h) pipeline note : routing
       note = this.computeRouting.execute(note);
 
-      log.debug('Note ready for publishing', {
+      this.logger.debug('Note ready for publishing', {
         noteId: note.noteId,
         vaultPath: note.vaultPath,
       });
@@ -184,7 +187,7 @@ export class PublishToSiteUseCase {
     }
 
     if (publishable.length === 0) {
-      log.info('No publishable notes after filtering');
+      this.logger.info('No publishable notes after filtering');
       progress?.finish();
       return { type: 'success', publishedCount: 0, notes: [] };
     }
@@ -205,16 +208,19 @@ export class PublishToSiteUseCase {
 
     try {
       for (const [vpsId, notes] of byVps.entries()) {
-        log.info('Uploading notes to VPS', { vpsId, noteCount: notes.length });
+        this.logger.info('Uploading notes to VPS', {
+          vpsId,
+          noteCount: notes.length,
+        });
         await this.uploaderPort.upload(notes);
         publishedCount += notes.length;
       }
 
-      log.info('Publishing completed successfully', { publishedCount });
+      this.logger.info('Publishing completed successfully', { publishedCount });
       progress?.finish();
       return { type: 'success', publishedCount, notes: publishable };
     } catch (error) {
-      log.error('Error during publishing', error);
+      this.logger.error('Error during publishing', error);
       progress?.finish();
       return { type: 'error', error };
     }
