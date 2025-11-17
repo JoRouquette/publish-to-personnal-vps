@@ -33,6 +33,7 @@ npm-debug.log
 yarn-error.log
 testem.log
 /typings
+diff.md
 
 # System Files
 .DS_Store
@@ -44,4 +45,4 @@ Thumbs.db
 .github/instructions/nx.instructions.md
 
 vite.config.*.timestamp*
-vitest.config.*.timestamp*
+vitest.config.*.timestamp*diff.md

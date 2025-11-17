@@ -20,10 +20,10 @@ type ApiNote = {
   updatedAt: string;
 };
 
-export class HttpUploaderAdapter implements UploaderPort {
+export class NotesUploaderAdapter implements UploaderPort {
   constructor(private readonly vpsConfig: VpsConfig) {}
 
-  async uploadNotes(notes: PublishableNote[]): Promise<void> {
+  async upload(notes: PublishableNote[]): Promise<void> {
     if (!Array.isArray(notes) || notes.length === 0) return;
 
     const vps = (notes[0] as any).vpsConfig ?? this.vpsConfig;
@@ -50,7 +50,7 @@ export class HttpUploaderAdapter implements UploaderPort {
     }
 
     const json = response.json;
-    if (!json || json.ok !== true) {
+    if (!json || json.api !== 'ok') {
       throw new Error(`Upload API returned an error: ${JSON.stringify(json)}`);
     }
   }

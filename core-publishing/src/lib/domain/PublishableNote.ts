@@ -1,12 +1,18 @@
-import { FolderConfig } from './FolderConfig';
-import { Frontmatter } from './Frontmatter';
-import { VpsConfig } from './VpsConfig';
+import type { AssetRef } from './AssetRef';
+import { NoteCore } from './NoteCore';
+import { NoteRoutingInfo } from './NoteRoutingInfo';
+import type { ResolvedWikilink } from './ResolvedWikilink';
+import type { WikilinkRef } from './WikilinkRef';
 
-export interface PublishableNote {
-  vaultPath: string;
-  relativePath: string;
-  content: string;
-  frontmatter: Frontmatter;
-  folderConfig: FolderConfig;
-  vpsConfig: VpsConfig;
+/**
+ * PublishableNote = noyau + capacités OPTIONNELLES.
+ *
+ * Chaque usecase ajoute son petit morceau (routing, assets, wikilinks, etc.)
+ * en enrichissant la note, sans créer de hiérarchie de classes.
+ */
+export interface PublishableNote extends NoteCore {
+  routing?: NoteRoutingInfo;
+  assets?: AssetRef[];
+  wikilinks?: WikilinkRef[];
+  resolvedWikilinks?: ResolvedWikilink[];
 }
