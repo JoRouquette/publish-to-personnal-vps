@@ -18,8 +18,34 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     const { t } = getTranslations(this.app, this.plugin.settings);
-
     const settings = this.plugin.settings;
+
+    // Sanity defaults au cas où (défensif)
+    if (!Array.isArray(settings.vpsConfigs)) {
+      settings.vpsConfigs = [];
+    }
+    if (settings.vpsConfigs.length === 0) {
+      settings.vpsConfigs.push({
+        id: 'default',
+        name: 'VPS',
+        url: '',
+        apiKey: '',
+      } as VpsConfig);
+    }
+    const vps = settings.vpsConfigs[0];
+
+    if (!Array.isArray(settings.folders)) {
+      settings.folders = [];
+    }
+    if (!settings.ignoreRules) {
+      settings.ignoreRules = [];
+    }
+    if (!settings.assetsFolder) {
+      settings.assetsFolder = 'assets';
+    }
+    if (settings.enableAssetsVaultFallback == null) {
+      settings.enableAssetsVaultFallback = true;
+    }
 
     // Racine avec le style principal
     const root = containerEl.createDiv({
@@ -28,14 +54,14 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
 
     root.createEl('h1', { text: t.settings.tabTitle });
 
-    // #region: Langue
+    // -----------------------------------------------------------------------
+    // #1 – Langue d’interface
+    // -----------------------------------------------------------------------
     const langBlock = root.createDiv({ cls: 'ptpv-block' });
-    const langBlockDiv = langBlock.createDiv({
-      cls: 'ptpv-block-title',
-    });
-    langBlockDiv.createEl('h6', { text: t.settings.language.title });
+    const langBlockTitle = langBlock.createDiv({ cls: 'ptpv-block-title' });
+    langBlockTitle.createEl('h6', { text: t.settings.language.title });
 
-    new Setting(langBlockDiv)
+    new Setting(langBlock)
       .setName(t.settings.language.label)
       .setDesc(t.settings.language.description)
       .addDropdown((dropdown) => {
@@ -47,80 +73,181 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
           .onChange(async (value) => {
             settings.locale = value as any;
             await this.plugin.saveSettings();
-            this.display();
+            this.display(); // re-render pour appliquer les nouvelles traductions
           });
       });
 
-    // #region: VPS config
-    let vps = settings.vpsConfigs?.[0];
-    if (!vps) {
-      vps = {
-        id: 'default',
-        name: 'VPS',
-        url: '',
-        apiKey: '',
-      } as VpsConfig;
-      settings.vpsConfigs = [vps];
+    // -----------------------------------------------------------------------
+    // #2 – Configuration globale du vault (assets)
+    // -----------------------------------------------------------------------
+    const vaultBlock = root.createDiv({ cls: 'ptpv-block' });
+    const vaultBlockTitle = vaultBlock.createDiv({ cls: 'ptpv-block-title' });
+    vaultBlockTitle.createEl('h6', {
+      text: t.settings.vault.title,
+    });
+
+    vaultBlock.createDiv({
+      cls: 'ptpv-help',
+      text: t.settings.vault?.help,
+    });
+
+    // Dossier d’assets dans le vault
+    new Setting(vaultBlock)
+      .setName(t.settings.vault?.assetsFolderLabel)
+      .setDesc(t.settings.vault?.assetsFolderDescription)
+      .addText((text) =>
+        text
+          .setPlaceholder('assets')
+          .setValue(settings.assetsFolder || 'assets')
+          .onChange(async (value) => {
+            settings.assetsFolder = value.trim() || 'assets';
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // Fallback de recherche des assets dans tout le vault
+    new Setting(vaultBlock)
+      .setName(t.settings.vault?.enableAssetsVaultFallbackLabel)
+      .setDesc(t.settings.vault?.enableAssetsVaultFallbackDescription)
+      .addToggle((toggle) =>
+        toggle
+          .setValue(settings.enableAssetsVaultFallback)
+          .onChange(async (value) => {
+            settings.enableAssetsVaultFallback = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    // -----------------------------------------------------------------------
+    // #3 – Folder configs (ce qui est publié et où)
+    // -----------------------------------------------------------------------
+    const folderBlock = root.createDiv({ cls: 'ptpv-block' });
+    const folderBlockTitle = folderBlock.createDiv({
+      cls: 'ptpv-block-title',
+    });
+    folderBlockTitle.createEl('h6', { text: t.settings.folders.title });
+
+    // Si aucun dossier, on en crée un par défaut lié au VPS courant
+    if (settings.folders.length === 0) {
+      settings.folders.push(createDefaultFolderConfig(vps.id));
     }
 
-    const vpsBlock = root.createDiv({ cls: 'ptpv-block' });
-    const vpsBlockDiv = vpsBlock.createDiv({
-      cls: 'ptpv-block-title',
+    settings.folders.forEach((folderCfg, index) => {
+      const singleFolderFieldset = folderBlock.createEl('fieldset', {
+        cls: 'ptpv-folder',
+      });
+
+      singleFolderFieldset.createEl('legend', {
+        text:
+          folderCfg.vaultFolder && folderCfg.vaultFolder.length > 0
+            ? folderCfg.vaultFolder
+            : `${t.settings.folders.vaultLabel} #${index + 1}`,
+      });
+
+      // Bouton suppression du folder
+      const folderSetting = new Setting(singleFolderFieldset).setName(
+        t.settings.folders.deleteButton ?? 'Delete folder'
+      );
+
+      folderSetting.addButton((btn) => {
+        btn.setIcon('trash').onClick(async () => {
+          if (this.plugin.settings.folders.length <= 1) {
+            new Notice(
+              t.settings.folders.deleteLastForbidden ??
+                'At least one folder is required.'
+            );
+            return;
+          }
+          this.plugin.settings.folders.splice(index, 1);
+          await this.plugin.saveSettings();
+          this.display();
+        });
+      });
+
+      // Dossier du vault
+      const vaultSetting = new Setting(singleFolderFieldset)
+        .setName(t.settings.folders.vaultLabel)
+        .setDesc(t.settings.folders.vaultDescription);
+
+      vaultSetting.addText((text) => {
+        text
+          .setPlaceholder('Blog')
+          .setValue(folderCfg.vaultFolder)
+          .onChange(async (value) => {
+            folderCfg.vaultFolder = value.trim();
+            await this.plugin.saveSettings();
+          });
+
+        new FolderSuggest(this.app, text.inputEl);
+      });
+
+      // Route de base (côté site)
+      const routeSetting = new Setting(singleFolderFieldset)
+        .setName(t.settings.folders.routeLabel)
+        .setDesc(t.settings.folders.routeDescription);
+
+      routeSetting.addText((text) =>
+        text
+          .setPlaceholder('/blog')
+          .setValue(folderCfg.routeBase)
+          .onChange(async (value) => {
+            let route = value.trim();
+            if (!route) {
+              route = '/';
+            }
+            if (!route.startsWith('/')) {
+              route = '/' + route;
+            }
+            // On laisse la logique finer côté compute-routing, ici on ne fait que le minimum
+            folderCfg.routeBase = route;
+            await this.plugin.saveSettings();
+          })
+      );
+
+      // Sanitization : suppression des fenced code blocks (règle par défaut mais désactivable)
+      const sanitizeSetting = new Setting(singleFolderFieldset)
+        .setName(t.settings.folders.sanitizeRemoveCodeBlocksLabel)
+        .setDesc(t.settings.folders.sanitizeRemoveCodeBlocksDescription);
+
+      sanitizeSetting.addToggle((toggle) =>
+        toggle
+          .setValue(folderCfg.sanitization?.removeFencedCodeBlocks ?? true)
+          .onChange(async (value) => {
+            if (!folderCfg.sanitization) {
+              folderCfg.sanitization = { removeFencedCodeBlocks: value };
+            } else {
+              folderCfg.sanitization.removeFencedCodeBlocks = value;
+            }
+            await this.plugin.saveSettings();
+          })
+      );
     });
-    vpsBlockDiv.createEl('h6', { text: t.settings.vps.title });
 
-    new Setting(vpsBlockDiv)
-      .setName(t.settings.vps.nameLabel)
-      .setDesc(t.settings.vps.nameDescription)
-      .addText((text) =>
-        text
-          .setPlaceholder('VPS')
-          .setValue(vps.name)
-          .onChange(async (value) => {
-            vps.name = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(vpsBlock)
-      .setName(t.settings.vps.urlLabel)
-      .setDesc(t.settings.vps.urlDescription)
-      .addText((text) =>
-        text
-          .setPlaceholder('https://...')
-          .setValue(vps.url)
-          .onChange(async (value) => {
-            vps.url = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(vpsBlock)
-      .setName(t.settings.vps.apiKeyLabel)
-      .setDesc(t.settings.vps.apiKeyDescription)
-      .addText((text) =>
-        text
-          .setPlaceholder('********')
-          .setValue(vps.apiKey)
-          .onChange(async (value) => {
-            vps.apiKey = value.trim();
-            await this.plugin.saveSettings();
-          })
-      );
-
-    vpsBlock.createDiv({
-      cls: 'ptpv-help',
-      text: t.settings.vps.help,
+    const rowAddFolder = root.createDiv({
+      cls: 'ptpv-button-row',
     });
+    const btnAddFolder = rowAddFolder.createEl('button', {
+      text: t.settings.folders.addButton ?? 'Add folder',
+    });
+    btnAddFolder.addClass('mod-cta');
+    btnAddFolder.onclick = async () => {
+      const vpsId = settings.vpsConfigs?.[0]?.id ?? 'default';
+      this.plugin.settings.folders.push(createDefaultFolderConfig(vpsId));
+      await this.plugin.saveSettings();
+      this.display();
+    };
 
-    // #region: Global ignore rules for frontmatter
+    // -----------------------------------------------------------------------
+    // #4 – Règles globales d’ignore sur le frontmatter
+    // -----------------------------------------------------------------------
     const ignoreBlock = root.createDiv({ cls: 'ptpv-block' });
-    const ignoreBlockDiv = ignoreBlock.createDiv({
+    const ignoreBlockTitle = ignoreBlock.createDiv({
       cls: 'ptpv-block-title',
     });
-    ignoreBlockDiv.createEl('h6', { text: t.settings.ignoreRules.title });
+    ignoreBlockTitle.createEl('h6', { text: t.settings.ignoreRules.title });
 
-    let ignoreRules = settings.ignoreRules ?? [];
+    const ignoreRules = settings.ignoreRules ?? [];
+
     ignoreRules.forEach((rule, index) => {
       const ruleSetting = new Setting(ignoreBlock).setName(
         `${t.settings.ignoreRules.valueLabel ?? 'Ignore rule'} #${index + 1}`
@@ -227,115 +354,60 @@ export class PublishToPersonalVpsSettingTab extends PluginSettingTab {
       this.display();
     };
 
-    // #region: Folder configs
-    const folderBlock = root.createDiv({ cls: 'ptpv-block' });
-    const folderBlockDiv = folderBlock.createDiv({
+    // -----------------------------------------------------------------------
+    // #5 – VPS (unique pour l’instant) + test de connexion
+    // -----------------------------------------------------------------------
+    const vpsBlock = root.createDiv({ cls: 'ptpv-block' });
+    const vpsBlockTitle = vpsBlock.createDiv({
       cls: 'ptpv-block-title',
     });
-    folderBlockDiv.createEl('h6', { text: t.settings.folders.title });
+    vpsBlockTitle.createEl('h6', { text: t.settings.vps.title });
 
-    if (!Array.isArray(settings.folders)) {
-      settings.folders = [];
-    }
-
-    // Si aucun dossier, on en crée un par défaut
-    if (settings.folders.length === 0) {
-      settings.folders.push(createDefaultFolderConfig(vps.id));
-    }
-
-    settings.folders.forEach((folderCfg, index) => {
-      const singleFolderFieldset = folderBlockDiv.createEl('fieldset', {
-        cls: 'ptpv-folder',
-      });
-
-      singleFolderFieldset.createEl('legend', {
-        text:
-          folderCfg.vaultFolder && folderCfg.vaultFolder.length > 0
-            ? folderCfg.vaultFolder
-            : `${t.settings.folders.vaultLabel} #${index + 1}`,
-      });
-
-      const folderSetting = new Setting(singleFolderFieldset).setName(
-        t.settings.folders.deleteButton ?? 'Delete folder'
-      );
-
-      folderSetting.addButton((btn) => {
-        btn.setIcon('trash').onClick(async () => {
-          if (this.plugin.settings.folders.length <= 1) {
-            new Notice(
-              t.settings.folders.deleteLastForbidden ??
-                'At least one folder is required.'
-            );
-            return;
-          }
-          this.plugin.settings.folders.splice(index, 1);
-          await this.plugin.saveSettings();
-          this.display();
-        });
-      });
-
-      const vaultSetting = new Setting(singleFolderFieldset)
-        .setName(t.settings.folders.vaultLabel)
-        .setDesc(t.settings.folders.vaultDescription);
-
-      vaultSetting.addText((text) => {
+    new Setting(vpsBlock)
+      .setName(t.settings.vps.nameLabel)
+      .setDesc(t.settings.vps.nameDescription)
+      .addText((text) =>
         text
-          .setPlaceholder('Blog')
-          .setValue(folderCfg.vaultFolder)
+          .setPlaceholder('VPS')
+          .setValue(vps.name)
           .onChange(async (value) => {
-            folderCfg.vaultFolder = value.trim();
-            await this.plugin.saveSettings();
-          });
-
-        new FolderSuggest(this.app, text.inputEl);
-      });
-
-      const routeSetting = new Setting(singleFolderFieldset)
-        .setName(t.settings.folders.routeLabel)
-        .setDesc(t.settings.folders.routeDescription);
-
-      routeSetting.addText((text) =>
-        text
-          .setPlaceholder('/blog')
-          .setValue(folderCfg.routeBase)
-          .onChange(async (value) => {
-            folderCfg.routeBase = value.trim();
+            vps.name = value.trim();
             await this.plugin.saveSettings();
           })
       );
 
-      const sanitizeSetting = new Setting(singleFolderFieldset)
-        .setName(t.settings.folders.sanitizeRemoveCodeBlocksLabel)
-        .setDesc(t.settings.folders.sanitizeRemoveCodeBlocksDescription);
-
-      sanitizeSetting.addToggle((toggle) =>
-        toggle
-          .setValue(folderCfg.sanitization?.removeFencedCodeBlocks ?? true)
+    new Setting(vpsBlock)
+      .setName(t.settings.vps.urlLabel)
+      .setDesc(t.settings.vps.urlDescription)
+      .addText((text) =>
+        text
+          .setPlaceholder('https://...')
+          .setValue(vps.url)
           .onChange(async (value) => {
-            if (!folderCfg.sanitization) {
-              folderCfg.sanitization = { removeFencedCodeBlocks: value };
-            } else {
-              folderCfg.sanitization.removeFencedCodeBlocks = value;
-            }
+            vps.url = value.trim();
             await this.plugin.saveSettings();
           })
       );
+
+    new Setting(vpsBlock)
+      .setName(t.settings.vps.apiKeyLabel)
+      .setDesc(t.settings.vps.apiKeyDescription)
+      .addText((text) =>
+        text
+          .setPlaceholder('********')
+          .setValue(vps.apiKey)
+          .onChange(async (value) => {
+            vps.apiKey = value.trim();
+            await this.plugin.saveSettings();
+          })
+      );
+
+    vpsBlock.createDiv({
+      cls: 'ptpv-help',
+      text: t.settings.vps.help,
     });
 
-    const rowAddFolder = root.createDiv({
-      cls: 'ptpv-button-row',
-    });
-    const btnAddFolder = rowAddFolder.createEl('button', {
-      text: t.settings.folders.addButton ?? 'Add folder',
-    });
-    btnAddFolder.addClass('mod-cta');
-    btnAddFolder.onclick = async () => {
-      const vpsId = settings.vpsConfigs?.[0]?.id ?? 'default';
-      this.plugin.settings.folders.push(createDefaultFolderConfig(vpsId));
-      await this.plugin.saveSettings();
-      this.display();
-    };
-
+    // Bouton de test de connexion
     const rowTestConnection = root.createDiv({
       cls: 'ptpv-button-row',
     });

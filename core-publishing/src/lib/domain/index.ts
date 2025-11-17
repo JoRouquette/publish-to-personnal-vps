@@ -1,5 +1,5 @@
 export * from './FolderConfig';
-export * from './Frontmatter';
+export * from './DomainFrontmatter';
 export * from './IgnoreRule';
 export * from './PluginLocale';
 export * from './PublishableNote';

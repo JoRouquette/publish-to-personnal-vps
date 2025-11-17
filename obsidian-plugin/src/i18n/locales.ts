@@ -1,91 +1,110 @@
 export type Locale = 'en' | 'fr';
 
+type ErrorTranslations = {
+  failureToExportSettings: string;
+};
+
+type IgnoreRulesDefaults = {
+  publishingProperty: string;
+  nonPublishingValue: string;
+  draftProperty?: string;
+  draftValue?: string;
+  typeProperty: string;
+  typeValue: string;
+};
+
+type LanguageTranslations = {
+  title: string;
+  label: string;
+  description: string;
+};
+
+type VpsTranslations = {
+  title: string;
+  nameLabel: string;
+  nameDescription: string;
+  urlLabel: string;
+  urlDescription: string;
+  apiKeyLabel: string;
+  apiKeyDescription: string;
+  help: string;
+};
+
+type FoldersTranslations = {
+  title: string;
+  addButton: string;
+  deleteButton: string;
+  deleteLastForbidden: string;
+  vaultLabel: string;
+  vaultDescription: string;
+  routeLabel: string;
+  routeDescription: string;
+  sanitizeRemoveCodeBlocksLabel: string;
+  sanitizeRemoveCodeBlocksDescription: string;
+  rulesHelp: string;
+};
+
+type IgnoreRulesTranslations = {
+  title: string;
+  description?: string;
+  help: string;
+  addButton: string;
+  deleteButton: string;
+  propertyLabel: string;
+  propertyDescription: string;
+  valueLabel: string;
+  valueDescription: string;
+  modeValues: string;
+  modeBoolean: string;
+};
+
+type TestConnectionTranslations = {
+  label: string;
+  notImplemented: string;
+  failed: string;
+  success: string;
+  invalidConfig: string;
+  invalidJson: string;
+  missingApiKey: string;
+  invalidUrl: string;
+  resultPrefix: string;
+  unexpectedResponsePrefix: string;
+};
+
 export type PluginTranslations = {
   name: string;
   commandPublish: string;
+  commandTestConnection: string;
+  commandOpenSettings: string;
   publishSuccess: string;
   publishError: string;
   noConfig: string;
-  error: {
-    failureToExportSettings: string;
-  };
+  error: ErrorTranslations;
+};
+
+export type VaultTranslations = {
+  title: string;
+  help: string;
+  assetsFolderLabel: string;
+  assetsFolderDescription: string;
+  enableAssetsVaultFallbackLabel: string;
+  enableAssetsVaultFallbackDescription: string;
 };
 
 export type SettingsTranslations = {
   tabTitle: string;
-
   errors: {
     missingVpsConfig: string;
   };
-
   defaults: {
-    ignoreRules: {
-      publishingProperty: string;
-      nonPublishingValue: string;
-      draftProperty?: string;
-      draftValue?: string;
-      typeProperty: string;
-      typeValue: string;
-    };
+    ignoreRules: IgnoreRulesDefaults;
   };
-
-  language: {
-    title: string;
-    label: string;
-    description: string;
-  };
-
-  vps: {
-    title: string;
-    nameLabel: string;
-    nameDescription: string;
-    urlLabel: string;
-    urlDescription: string;
-    apiKeyLabel: string;
-    apiKeyDescription: string;
-    help: string;
-  };
-
-  folders: {
-    title: string;
-    addButton: string;
-    deleteButton: string;
-    deleteLastForbidden: string;
-    vaultLabel: string;
-    vaultDescription: string;
-    routeLabel: string;
-    routeDescription: string;
-    sanitizeRemoveCodeBlocksLabel: string;
-    sanitizeRemoveCodeBlocksDescription: string;
-    rulesHelp: string;
-  };
-
-  ignoreRules: {
-    title: string;
-    description?: string;
-    help: string;
-    addButton: string;
-    deleteButton: string;
-    propertyLabel: string;
-    propertyDescription: string;
-    valueLabel: string;
-    valueDescription: string;
-    modeValues: string;
-    modeBoolean: string;
-  };
-
-  testConnection: {
-    label: string;
-    notImplemented: string;
-    failed: string;
-    success: string;
-    invalidConfig: string;
-    invalidJson: string;
-    missingApiKey: string;
-    invalidUrl: string;
-    resultPrefix: string;
-    unexpectedResponsePrefix: string;
-  };
+  language: LanguageTranslations;
+  vps: VpsTranslations;
+  folders: FoldersTranslations;
+  ignoreRules: IgnoreRulesTranslations;
+  testConnection: TestConnectionTranslations;
+  vault: VaultTranslations;
 };
 
 export type Translations = {
@@ -97,6 +116,8 @@ export const en: Translations = {
   plugin: {
     name: 'Publish To Personal VPS',
     commandPublish: 'Launch publishing to Personal VPS',
+    commandTestConnection: 'Test VPS connection',
+    commandOpenSettings: 'Open Publish To Personal VPS Settings',
     publishSuccess: 'Publishing completed.',
     publishError: 'Error during publishing (see console).',
     noConfig: 'No VPS or folder configuration defined.',
@@ -106,11 +127,9 @@ export const en: Translations = {
   },
   settings: {
     tabTitle: 'Publish To Personal VPS',
-
     errors: {
       missingVpsConfig: 'VPS configuration not found for folder: ',
     },
-
     defaults: {
       ignoreRules: {
         publishingProperty: 'publish',
@@ -121,13 +140,11 @@ export const en: Translations = {
         typeValue: 'Dashboard',
       },
     },
-
     language: {
       title: 'Language selection',
       label: 'Language',
       description: 'Choose plugin language.',
     },
-
     vps: {
       title: 'VPS configuration',
       nameLabel: 'Name',
@@ -138,7 +155,6 @@ export const en: Translations = {
       apiKeyDescription: 'Key used to authenticate uploads.',
       help: 'HTTP requests to /api/upload will use this URL and API key.',
     },
-
     folders: {
       title: 'Folders to publish',
       addButton: 'Add folder',
@@ -154,7 +170,6 @@ export const en: Translations = {
       rulesHelp:
         'Notes whose frontmatter matches the ignore rules below will not be published.',
     },
-
     ignoreRules: {
       title: 'Ignore rules',
       description:
@@ -170,7 +185,6 @@ export const en: Translations = {
       modeValues: 'Ignore specific values',
       modeBoolean: 'Ignore if equal (true/false)',
     },
-
     testConnection: {
       label: 'Test connection',
       notImplemented: 'Connection test not implemented yet.',
@@ -183,6 +197,16 @@ export const en: Translations = {
       resultPrefix: 'Test connection result: ',
       unexpectedResponsePrefix: 'Unexpected response from server: ',
     },
+    vault: {
+      title: 'Vault & assets',
+      help: 'Global settings related to the vault: assets folder and fallback.',
+      assetsFolderLabel: 'Assets folder in vault',
+      assetsFolderDescription:
+        'Folder in the vault where assets (images, files) are located. Example: Assets, Media, etc.',
+      enableAssetsVaultFallbackLabel: 'Allow system to fallback on vault root',
+      enableAssetsVaultFallbackDescription:
+        'If enabled, when an asset is not found in the specified folder, the system will look for it in the vault root and in all folders.',
+    },
   },
 };
 
@@ -190,6 +214,9 @@ export const fr: Translations = {
   plugin: {
     name: 'Publier vers mon VPS personnel',
     commandPublish: 'Publier vers mon VPS personnel',
+    commandTestConnection: 'Tester la connexion VPS',
+    commandOpenSettings:
+      'Ouvrir les paramètres du plugin Publier vers mon VPS personnel',
     publishSuccess: 'Publication terminée.',
     publishError: 'Erreur lors de la publication (voir la console).',
     noConfig: 'Aucune configuration VPS ou dossier définie.',
@@ -199,11 +226,9 @@ export const fr: Translations = {
   },
   settings: {
     tabTitle: 'Publier vers mon VPS personnel',
-
     errors: {
       missingVpsConfig: 'Configuration VPS introuvable pour le dossier : ',
     },
-
     defaults: {
       ignoreRules: {
         publishingProperty: 'publish',
@@ -214,13 +239,11 @@ export const fr: Translations = {
         typeValue: 'Dashboard',
       },
     },
-
     language: {
       title: 'Sélection de la langue',
       label: 'Langue',
       description: 'Choisir la langue du plugin.',
     },
-
     vps: {
       title: 'Configuration du VPS',
       nameLabel: 'Nom',
@@ -231,7 +254,6 @@ export const fr: Translations = {
       apiKeyDescription: 'Clé utilisée pour authentifier les envois.',
       help: 'Les requêtes HTTP vers /api/upload utiliseront cette URL et cette clé.',
     },
-
     folders: {
       title: 'Dossiers à publier',
       addButton: 'Ajouter un dossier',
@@ -247,7 +269,6 @@ export const fr: Translations = {
       rulesHelp:
         'Les notes dont le frontmatter correspond aux règles ci-dessous ne seront pas publiées.',
     },
-
     ignoreRules: {
       title: 'Règles d’ignorance',
       description:
@@ -263,7 +284,6 @@ export const fr: Translations = {
       modeValues: 'Ignorer des valeurs spécifiques',
       modeBoolean: 'Ignorer si égal (true/false)',
     },
-
     testConnection: {
       label: 'Tester la connexion',
       notImplemented: 'Test de connexion non implémenté pour l’instant.',
@@ -275,6 +295,17 @@ export const fr: Translations = {
       invalidUrl: 'URL invalide.',
       resultPrefix: 'Résultat du test de connexion : ',
       unexpectedResponsePrefix: 'Réponse inattendue du serveur : ',
+    },
+    vault: {
+      title: 'Vault & assets',
+      help: 'Réglages globaux liés au vault : dossier d’assets et fallback.',
+      assetsFolderLabel: 'Dossier d’assets dans le vault',
+      assetsFolderDescription:
+        'Dossier dans le vault où les assets (images, fichiers) sont situés. Ex : Assets, Media, etc.',
+      enableAssetsVaultFallbackLabel:
+        'Permettre le recours à la racine du vault',
+      enableAssetsVaultFallbackDescription:
+        'Si activé, lorsqu’un asset n’est pas trouvé dans le dossier spécifié, le système le cherchera à la racine du vault et dans tous les dossiers.',
     },
   },
 };
