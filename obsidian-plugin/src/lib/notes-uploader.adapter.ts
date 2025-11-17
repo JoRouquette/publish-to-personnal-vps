@@ -50,7 +50,7 @@ export class NotesUploaderAdapter implements UploaderPort {
     }
 
     const json = response.json;
-    if (!json || json.ok !== true) {
+    if (!json || json.api !== 'ok') {
       throw new Error(`Upload API returned an error: ${JSON.stringify(json)}`);
     }
   }
