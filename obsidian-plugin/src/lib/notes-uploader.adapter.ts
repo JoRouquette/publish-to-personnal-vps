@@ -1,11 +1,10 @@
-import { requestUrl } from 'obsidian';
-import type { PublishableNote } from '../../../core-publishing/src/lib/domain/PublishableNote';
-import type { UploaderPort } from '../../../core-publishing/src/lib/ports/uploader-port';
-import type { VpsConfig } from '../../../core-publishing/src/lib/domain/VpsConfig';
 import { DomainFrontmatter, FolderConfig } from 'core-publishing/src';
-import { LoggerPort } from '../../../core-publishing/src/lib/ports/logger-port';
-import { HttpResponse } from 'core-publishing/src/lib/domain/HttpResponse';
 import { HandleHttpResponseUseCase } from 'core-publishing/src/lib/usecases/handle-http-response.usecase';
+import { requestUrl, RequestUrlResponse } from 'obsidian';
+import type { PublishableNote } from '../../../core-publishing/src/lib/domain/PublishableNote';
+import type { UploaderPort } from '../../../core-publishing/src/lib/domain/uploader-port';
+import type { VpsConfig } from '../../../core-publishing/src/lib/domain/VpsConfig';
+import type { LoggerPort } from '../../../core-publishing/src/lib/ports/logger-port';
 
 type ApiNote = {
   id: string;
@@ -23,11 +22,11 @@ type ApiNote = {
 
 export class NotesUploaderAdapter implements UploaderPort {
   private readonly _logger: LoggerPort;
-  private readonly _handleResponse: HandleHttpResponseUseCase;
+  private readonly _handleResponse: HandleHttpResponseUseCase<RequestUrlResponse>;
 
   constructor(
     private readonly vpsConfig: VpsConfig,
-    handleResponse: HandleHttpResponseUseCase,
+    handleResponse: HandleHttpResponseUseCase<RequestUrlResponse>,
     logger: LoggerPort
   ) {
     this._logger = logger;
@@ -65,6 +64,7 @@ export class NotesUploaderAdapter implements UploaderPort {
           'x-api-key': apiKeyPlain,
         },
         body: JSON.stringify(body),
+        throw: false,
       });
 
       const result = await this._handleResponse.handleResponse(response);

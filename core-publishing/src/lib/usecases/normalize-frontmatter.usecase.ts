@@ -1,4 +1,5 @@
 import type { DomainFrontmatter } from '../domain/DomainFrontmatter';
+import { LoggerPort } from '../ports/logger-port';
 
 function setNestedValue(
   target: Record<string, unknown>,
@@ -25,6 +26,12 @@ function setNestedValue(
 }
 
 export class NormalizeFrontmatterUseCase {
+  private readonly _logger: LoggerPort;
+
+  constructor(logger: LoggerPort) {
+    this._logger = logger.child({ useCase: 'NormalizeFrontmatterUseCase' });
+  }
+
   execute(input?: Record<string, unknown>): DomainFrontmatter {
     if (!input) {
       return { flat: {}, nested: {} };

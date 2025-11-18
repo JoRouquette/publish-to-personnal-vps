@@ -3,6 +3,7 @@ import { AssetAlignment } from '../domain/AssetAlignment';
 import { AssetDisplayOptions } from '../domain/AssetDisplayOptions';
 import { AssetKind } from '../domain/AssetKind';
 import { AssetRef } from '../domain/AssetRef';
+import type { LoggerPort } from '../ports/logger-port';
 
 /**
  * Regex pour capturer les embeds Obsidian : ![[...]]
@@ -29,7 +30,10 @@ function parseAlignment(token: string): AssetAlignment | undefined {
   return undefined;
 }
 
-function parseModifiers(tokens: string[]): AssetDisplayOptions {
+function parseModifiers(
+  tokens: string[],
+  logger?: LoggerPort
+): AssetDisplayOptions {
   let alignment: AssetAlignment | undefined;
   let width: number | undefined;
   const classes: string[] = [];
@@ -46,6 +50,7 @@ function parseModifiers(tokens: string[]): AssetDisplayOptions {
       const a = parseAlignment(token);
       if (a) {
         alignment = a;
+        logger?.debug(`Parsed alignment modifier: ${a}`);
         continue;
       }
     }
@@ -53,11 +58,13 @@ function parseModifiers(tokens: string[]): AssetDisplayOptions {
     // Largeur en pixels : "300"
     if (!width && /^[0-9]+$/.test(token)) {
       width = parseInt(token, 10);
+      logger?.debug(`Parsed width modifier: ${width}`);
       continue;
     }
 
     // Le reste : on le traite comme classe CSS / ITS
     classes.push(token);
+    logger?.debug(`Parsed class modifier: ${token}`);
   }
 
   return {
@@ -69,32 +76,57 @@ function parseModifiers(tokens: string[]): AssetDisplayOptions {
 }
 
 export class DetectAssetsUseCase {
+  private readonly _logger: LoggerPort;
+
+  constructor(logger: LoggerPort) {
+    this._logger = logger.child({ useCase: DetectAssetsUseCase.name });
+  }
+
   execute(note: PublishableNote): PublishableNote {
     const markdown = note.content;
     const assets: AssetRef[] = [];
 
     let match: RegExpExecArray | null;
+    let embedCount = 0;
     while ((match = EMBED_REGEX.exec(markdown)) !== null) {
+      embedCount++;
       const raw = match[0]; // "![[...]]"
       const inner = match[1].trim(); // contenu interne
 
-      if (!inner) continue;
+      if (!inner) {
+        this._logger.debug(`Skipped empty embed at match #${embedCount}`);
+        continue;
+      }
 
       const segments = inner
         .split('|')
         .map((s) => s.trim())
         .filter(Boolean);
-      if (segments.length === 0) continue;
+      if (segments.length === 0) {
+        this._logger.debug(
+          `Skipped embed with no segments at match #${embedCount}: "${raw}"`
+        );
+        continue;
+      }
 
       const target = segments[0]; // ex: "Tenebra1.jpg"
       const modifierTokens = segments.slice(1);
 
       const kind = classifyAssetKind(target);
-      const display = parseModifiers(modifierTokens);
+      const display = parseModifiers(modifierTokens, this._logger);
 
       if (kind === 'other' && !target.includes('.')) {
+        this._logger.debug(
+          `Skipped non-asset embed: "${target}" at match #${embedCount}`
+        );
         continue;
       }
+
+      this._logger.debug(
+        `Detected asset: target="${target}", kind="${kind}", display=${JSON.stringify(
+          display
+        )}`
+      );
 
       assets.push({
         raw,
@@ -105,8 +137,13 @@ export class DetectAssetsUseCase {
     }
 
     if (assets.length === 0) {
+      this._logger.info(`No assets detected in note "${note.title}"`);
       return note;
     }
+
+    this._logger.info(
+      `Detected ${assets.length} asset(s) in note "${note.title}"`
+    );
 
     return {
       ...note,

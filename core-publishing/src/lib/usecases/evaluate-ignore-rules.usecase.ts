@@ -2,6 +2,7 @@ import type { DomainFrontmatter } from '../domain/DomainFrontmatter';
 import { IgnorePrimitive } from '../domain/IgnorePrimitive';
 import type { IgnoreRule } from '../domain/IgnoreRule';
 import type { NoteEligibility } from '../domain/NoteEligibility';
+import type { LoggerPort } from '../ports/logger-port';
 
 export interface EvaluateIgnoreRulesInput {
   frontmatter: DomainFrontmatter;
@@ -73,10 +74,19 @@ function matchesAnyPrimitive(
 }
 
 export class EvaluateIgnoreRulesUseCase {
+  private readonly _logger: LoggerPort;
+
+  constructor(logger: LoggerPort) {
+    this._logger = logger.child({ useCase: EvaluateIgnoreRulesUseCase.name });
+  }
+
   execute(input: EvaluateIgnoreRulesInput): NoteEligibility {
     const { frontmatter, rules } = input;
 
+    this._logger.debug('Evaluating ignore rules', { frontmatter, rules });
+
     if (!rules || rules.length === 0) {
+      this._logger.info('No ignore rules provided, note is publishable');
       return { isPublishable: true };
     }
 
@@ -86,14 +96,24 @@ export class EvaluateIgnoreRulesUseCase {
       const rule = rules[index];
       const value = getNestedValue(nested, rule.property);
 
+      this._logger.debug('Evaluating rule', { rule, value, index });
+
       if (value === undefined) {
-        // La propriété n'existe pas : la règle ne s'applique pas.
+        this._logger.debug(
+          'Property does not exist in frontmatter, skipping rule',
+          { property: rule.property, index }
+        );
         continue;
       }
 
       // 1) Cas ignoreIf (bool uniquement)
       if (rule.ignoreIf !== undefined) {
         if (typeof value === 'boolean' && value === rule.ignoreIf) {
+          this._logger.info('Note ignored by ignoreIf rule', {
+            property: rule.property,
+            value,
+            ruleIndex: index,
+          });
           return {
             isPublishable: false,
             ignoredByRule: {
@@ -111,6 +131,11 @@ export class EvaluateIgnoreRulesUseCase {
       if (rule.ignoreValues && rule.ignoreValues.length > 0) {
         const matched = matchesAnyPrimitive(value, rule.ignoreValues);
         if (matched !== undefined) {
+          this._logger.info('Note ignored by ignoreValues rule', {
+            property: rule.property,
+            matchedValue: matched,
+            ruleIndex: index,
+          });
           return {
             isPublishable: false,
             ignoredByRule: {
@@ -125,6 +150,7 @@ export class EvaluateIgnoreRulesUseCase {
     }
 
     // Aucune règle n'a matché : la note est publiable.
+    this._logger.info('No ignore rule matched, note is publishable');
     return { isPublishable: true };
   }
 }

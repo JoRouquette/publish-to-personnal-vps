@@ -1,7 +1,7 @@
 import type { AssetRef } from '../domain/AssetRef.js';
 import { NoteWithAssets } from '../domain/NoteWithAssets.js';
 import { ResolvedAssetFile } from '../domain/ResolvedAssetFile.js';
-import type { UploaderPort } from '../ports/uploader-port.js';
+import type { UploaderPort } from '../domain/uploader-port.js';
 import type { AssetsVaultPort } from '../ports/assets-vault-port.js';
 import type { ProgressPort } from '../ports/progress-port.js';
 import type { LoggerPort } from '../ports/logger-port.js';

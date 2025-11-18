@@ -1,4 +1,4 @@
-import { Notice, Plugin } from 'obsidian';
+import { Notice, Plugin, RequestUrlResponse } from 'obsidian';
 
 import type { PublishPluginSettings } from '../../core-publishing/src/lib/domain/PublishPluginSettings';
 import type { I18nSettings } from './i18n';
@@ -121,7 +121,7 @@ function buildCoreSettings(settings: PluginSettings): PublishPluginSettings {
 
 export default class PublishToPersonalVpsPlugin extends Plugin {
   settings!: PluginSettings;
-  responseHandler!: HandleHttpResponseUseCase;
+  responseHandler!: HandleHttpResponseUseCase<RequestUrlResponse>;
 
   // ---------------------------------------------------------------------------
   // Debugging / logging
@@ -144,8 +144,13 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     this.logger.debug('Plugin loading...');
 
     // Handler HTTP commun
+    const httpResponseStatusMapper = new HttpResponseStatusMapper(
+      this.logger.child({ module: 'HttpResponseStatusMapper' })
+    );
+
     this.responseHandler = new HandleHttpResponseUseCase(
-      HttpResponseStatusMapper.mapOdsidianResponseToHttpResponse,
+      (res: RequestUrlResponse) =>
+        httpResponseStatusMapper.mapOdsidianResponseToHttpResponse(res),
       this.logger.child({ module: 'HttpResponseHandler' })
     );
 
@@ -162,14 +167,14 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     this.addCommand({
       id: 'publish-to-personal-vps',
       name: t.plugin.commandPublish,
-      callback: () => this.publishToSite(),
+      callback: async () => this.publishToSite(),
     });
 
     // Test de connexion au VPS
     this.addCommand({
       id: 'test-vps-connection',
       name: t.plugin.commandTestConnection,
-      callback: () => this.testConnection(),
+      callback: async () => this.testConnection(),
     });
 
     // Raccourci pour ouvrir les settings du plugin
@@ -420,9 +425,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     const res: HttpResponse = await testVpsConnection(
       vps,
       this.responseHandler,
-      this.logger.child({
-        module: 'HttpConnectionService',
-      })
+      this.logger
     );
 
     if (!res.isError) {
@@ -431,13 +434,14 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
 
       new Notice(t.settings.testConnection.success);
     } else {
-      this.logger.error('VPS connection test failed:', res.error);
+      this.logger.error('VPS connection test failed: ', res.error);
 
       new Notice(
-        t.settings.testConnection.failed +
-          (res.error instanceof Error
+        `${t.settings.testConnection.failed} ${
+          res.error instanceof Error
             ? res.error.message
-            : JSON.stringify(res.error))
+            : JSON.stringify(res.error)
+        }`
       );
     }
   }

@@ -2,7 +2,7 @@ import { HttpResponse } from 'core-publishing/src/lib/domain/HttpResponse';
 import type { VpsConfig } from 'core-publishing/src/lib/domain/VpsConfig';
 import { type LoggerPort } from 'core-publishing/src/lib/ports/logger-port';
 import { HandleHttpResponseUseCase } from 'core-publishing/src/lib/usecases/handle-http-response.usecase';
-import { requestUrl } from 'obsidian';
+import { requestUrl, RequestUrlResponse } from 'obsidian';
 
 function normalizeBaseUrl(url: string): string {
   let u = url.trim();
@@ -12,14 +12,19 @@ function normalizeBaseUrl(url: string): string {
 
 export async function testVpsConnection(
   vps: VpsConfig,
-  handleHttpResponse: HandleHttpResponseUseCase,
+  handleHttpResponse: HandleHttpResponseUseCase<RequestUrlResponse>,
   logger: LoggerPort
 ): Promise<HttpResponse> {
+  logger = logger.child({ method: 'testVpsConnection' });
   logger.debug('Testing VPS connection', { vps });
 
-  if (!vps.apiKey)
+  if (!vps.apiKey) {
     return { isError: true, error: new Error('Missing API key') };
-  if (!vps.url) return { isError: true, error: new Error('Invalid URL') };
+  }
+
+  if (!vps.url) {
+    return { isError: true, error: new Error('Invalid URL') };
+  }
 
   const baseUrl = normalizeBaseUrl(vps.url);
   const url = `${baseUrl}/api/ping`;
@@ -33,11 +38,14 @@ export async function testVpsConnection(
       headers: {
         'x-api-key': vps.apiKey,
       },
+      throw: false,
     });
+
+    logger.debug('Received response from VPS ', { res });
 
     return await handleHttpResponse.handleResponse(res);
   } catch (e) {
-    logger.error('Error during VPS connection test', e);
+    logger.error(`something when wrong in testVpsConnection `, e);
     return {
       isError: true,
       error: e instanceof Error ? e : new Error(String(e)),

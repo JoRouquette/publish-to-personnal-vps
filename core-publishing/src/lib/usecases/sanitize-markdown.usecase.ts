@@ -1,4 +1,3 @@
-// core-publishing/src/lib/usecases/sanitize-markdown.usecase.ts
 import type { SanitizationRules } from '../domain/SanitizationRules.js';
 
 export interface SanitizeMarkdownOutput {

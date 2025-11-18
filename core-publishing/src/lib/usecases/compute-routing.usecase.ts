@@ -1,6 +1,6 @@
-// core-publishing/src/lib/usecases/compute-routing.usecase.ts
 import type { PublishableNote } from '../domain/PublishableNote.js';
 import type { NoteRoutingInfo } from '../domain/NoteRoutingInfo.js';
+import type { LoggerPort } from '../ports/logger-port.js';
 
 function slugifySegment(segment: string): string {
   return segment
@@ -26,11 +26,32 @@ function normalizePath(path: string): string {
 }
 
 export class ComputeRoutingUseCase {
+  private readonly _logger: LoggerPort;
+
+  constructor(logger: LoggerPort) {
+    this._logger = logger.child({ useCase: ComputeRoutingUseCase.name });
+  }
+
   execute(note: PublishableNote): PublishableNote {
+    this._logger.debug('Computing routing for note', {
+      relativePath: note.relativePath,
+      folderConfig: note.folderConfig,
+    });
+
     const routeBase = normalizeRouteBase(note.folderConfig.routeBase || '');
+    this._logger.debug('Normalized routeBase', {
+      input: note.folderConfig.routeBase,
+      normalized: routeBase,
+    });
+
     const normalizedRel = normalizePath(note.relativePath);
+    this._logger.debug('Normalized relative path', {
+      input: note.relativePath,
+      normalized: normalizedRel,
+    });
 
     const segments = normalizedRel.split('/').filter(Boolean);
+    this._logger.debug('Path segments', { segments });
 
     let routing: NoteRoutingInfo;
 
@@ -43,6 +64,7 @@ export class ComputeRoutingUseCase {
         routeBase,
         fullPath: routeBase ? `${routeBase}/${slug}` : `/${slug}`,
       };
+      this._logger.info('Computed routing for root note', { routing });
     } else {
       const fileSegment = segments[segments.length - 1];
       const dirSegments = segments.slice(0, -1);
@@ -71,6 +93,7 @@ export class ComputeRoutingUseCase {
         routeBase,
         fullPath,
       };
+      this._logger.info('Computed routing for note', { routing });
     }
 
     return {

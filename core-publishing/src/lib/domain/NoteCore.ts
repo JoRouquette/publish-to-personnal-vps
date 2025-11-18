@@ -16,6 +16,11 @@ export interface NoteCore {
   noteId: string;
 
   /**
+   * Titre de la note (frontmatter.title ou nom de fichier sans extension).
+   */
+  title: string;
+
+  /**
    * Chemin complet dans le vault.
    * ex: "_Codex/Divinites/Tenebra.md"
    */

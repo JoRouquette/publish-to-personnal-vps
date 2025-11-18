@@ -1,10 +1,9 @@
-import { requestUrl } from 'obsidian';
-import type { UploaderPort } from '../../../core-publishing/src/lib/ports/uploader-port';
-import type { VpsConfig } from '../../../core-publishing/src/lib/domain/VpsConfig';
-import type { ResolvedAssetFile } from '../../../core-publishing/src/lib/domain/ResolvedAssetFile';
-import type { LoggerPort } from '../../../core-publishing/src/lib/ports/logger-port';
+import { UploaderPort } from 'core-publishing/src/lib/domain/uploader-port';
 import { HandleHttpResponseUseCase } from 'core-publishing/src/lib/usecases/handle-http-response.usecase';
-import { HttpResponse } from 'core-publishing/src/lib/domain/HttpResponse';
+import { requestUrl, RequestUrlResponse } from 'obsidian';
+import type { ResolvedAssetFile } from '../../../core-publishing/src/lib/domain/ResolvedAssetFile';
+import type { VpsConfig } from '../../../core-publishing/src/lib/domain/VpsConfig';
+import type { LoggerPort } from '../../../core-publishing/src/lib/ports/logger-port';
 
 type ApiAsset = {
   relativePath: string;
@@ -16,11 +15,11 @@ type ApiAsset = {
 
 export class AssetsUploaderAdapter implements UploaderPort {
   private readonly _logger: LoggerPort;
-  private readonly _handleResponse: HandleHttpResponseUseCase;
+  private readonly _handleResponse: HandleHttpResponseUseCase<RequestUrlResponse>;
 
   constructor(
     private readonly vpsConfig: VpsConfig,
-    handleResponse: HandleHttpResponseUseCase,
+    handleResponse: HandleHttpResponseUseCase<RequestUrlResponse>,
     logger: LoggerPort
   ) {
     this._logger = logger;
@@ -67,6 +66,7 @@ export class AssetsUploaderAdapter implements UploaderPort {
           'x-api-key': apiKeyPlain,
         },
         body: JSON.stringify(body),
+        throw: false,
       });
 
       const result = await this._handleResponse.handleResponse(response);

@@ -1,5 +1,6 @@
 import { PublishableNote } from '../domain';
 import type { WikilinkKind, WikilinkRef } from '../domain/WikilinkRef';
+import type { LoggerPort } from '../ports/logger-port';
 
 /**
  * Regex pour capturer les wikilinks [[...]].
@@ -32,20 +33,41 @@ function splitOnce(
 }
 
 export class DetectWikilinksUseCase {
+  private readonly _logger: LoggerPort;
+
+  constructor(logger: LoggerPort) {
+    this._logger = logger.child({ useCase: DetectWikilinksUseCase.name });
+  }
+
   execute(note: PublishableNote): PublishableNote {
     const markdown = note.content;
     const wikilinks: WikilinkRef[] = [];
 
     let match: RegExpExecArray | null;
+    let matchCount = 0;
+
+    this._logger.debug('Starting wikilink detection for note', {
+      noteId: note.noteId,
+    });
 
     while ((match = WIKILINK_REGEX.exec(markdown)) !== null) {
       const fullMatch = match[0]; // "[[...]]"
       const inner = match[1].trim();
-      if (!inner) continue;
+      if (!inner) {
+        this._logger.debug('Skipping empty wikilink match', {
+          match: fullMatch,
+          index: match.index,
+        });
+        continue;
+      }
 
       const startIndex = match.index ?? 0;
       // Exclure les "![[...]]" (assets) en vérifiant le caractère précédent
       if (startIndex > 0 && markdown[startIndex - 1] === '!') {
+        this._logger.debug('Skipping asset embed wikilink', {
+          match: fullMatch,
+          index: startIndex,
+        });
         continue;
       }
 
@@ -55,7 +77,13 @@ export class DetectWikilinksUseCase {
       const alias =
         aliasPart && aliasPart.trim().length > 0 ? aliasPart.trim() : undefined;
 
-      if (!targetRaw) continue;
+      if (!targetRaw) {
+        this._logger.debug('Skipping wikilink with empty target', {
+          match: fullMatch,
+          index: startIndex,
+        });
+        continue;
+      }
 
       // 2) Séparer path et subpath : "path#subpath"
       const [pathPart, subpathPart] = splitOnce(targetRaw, '#');
@@ -65,7 +93,13 @@ export class DetectWikilinksUseCase {
           ? subpathPart.trim()
           : undefined;
 
-      if (!path) continue;
+      if (!path) {
+        this._logger.debug('Skipping wikilink with empty path', {
+          match: fullMatch,
+          index: startIndex,
+        });
+        continue;
+      }
 
       const kind = inferKind(path);
 
@@ -78,12 +112,22 @@ export class DetectWikilinksUseCase {
         kind,
       };
 
+      this._logger.debug('Detected wikilink', { wikilink, index: startIndex });
       wikilinks.push(wikilink);
+      matchCount++;
     }
 
     if (wikilinks.length === 0) {
+      this._logger.info('No wikilinks detected in note', {
+        noteId: note.noteId,
+      });
       return note;
     }
+
+    this._logger.info('Detected wikilinks in note', {
+      noteId: note.noteId,
+      count: matchCount,
+    });
 
     return {
       ...note,
