@@ -145,7 +145,18 @@ export class PublishAssetsToSiteUseCase {
           this._logger.debug(
             `Uploading asset for noteId ${entry.noteId} asset= ${entry.asset}`
           );
-          await this.assetsUploaderPort.upload([entry.resolved]);
+
+          const success = await this.assetsUploaderPort.upload([
+            entry.resolved,
+          ]);
+
+          if (!success) {
+            this._logger.error(
+              `Asset upload reported failure for noteId ${entry.noteId} asset= ${entry.asset}`
+            );
+            throw new Error('Upload reported failure');
+          }
+
           publishedAssetsCount += 1;
           this._logger.info(
             `Successfully uploaded asset for noteId ${entry.noteId} asset= ${entry.asset}`

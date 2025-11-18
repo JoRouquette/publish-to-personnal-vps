@@ -212,7 +212,13 @@ export class PublishToSiteUseCase {
           vpsId,
           noteCount: notes.length,
         });
-        await this.uploaderPort.upload(notes);
+        const success = await this.uploaderPort.upload(notes);
+
+        if (!success) {
+          this.logger.error('Failed to upload notes to VPS', { vpsId });
+          throw new Error(`Upload failed for VPS ID ${vpsId}`);
+        }
+
         publishedCount += notes.length;
       }
 

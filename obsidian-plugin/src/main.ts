@@ -8,10 +8,7 @@ import { decryptApiKey, encryptApiKey } from './lib/api-key-crypto';
 import { GuidGeneratorAdapter } from './lib/guid-generator.adapter';
 import { NoticeProgressAdapter } from './lib/notice-progress.adapter';
 import { ObsidianVaultAdapter } from './lib/obsidian-vault.adapter';
-import {
-  TestConnectionResult,
-  testVpsConnection,
-} from './lib/services/http-connection.service';
+import { testVpsConnection } from './lib/services/http-connection.service';
 import { PublishToPersonalVpsSettingTab } from './lib/setting-tab';
 
 import { PublishToSiteUseCase } from 'core-publishing/src';
@@ -27,6 +24,9 @@ import { AssetsUploaderAdapter } from './lib/assets-uploader.adapter';
 import { NotesUploaderAdapter } from './lib/notes-uploader.adapter';
 import { ConsoleLoggerAdapter } from './lib/console-logger.adapter';
 import { LogLevel } from 'core-publishing/src/lib/ports/logger-port';
+import { HttpResponse } from 'core-publishing/src/lib/domain/HttpResponse';
+import { HandleHttpResponseUseCase } from 'core-publishing/src/lib/usecases/handle-http-response.usecase';
+import { HttpResponseStatusMapper } from './lib/utils/HttpResponseStatus.mapper';
 
 type PluginLocale = 'en' | 'fr' | 'system';
 
@@ -121,6 +121,7 @@ function buildCoreSettings(settings: PluginSettings): PublishPluginSettings {
 
 export default class PublishToPersonalVpsPlugin extends Plugin {
   settings!: PluginSettings;
+  responseHandler!: HandleHttpResponseUseCase;
 
   // ---------------------------------------------------------------------------
   // Debugging / logging
@@ -141,6 +142,12 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     const { t } = getTranslations(this.app, this.settings);
 
     this.logger.debug('Plugin loading...');
+
+    // Handler HTTP commun
+    this.responseHandler = new HandleHttpResponseUseCase(
+      HttpResponseStatusMapper.mapOdsidianResponseToHttpResponse,
+      this.logger.child({ module: 'HttpResponseHandler' })
+    );
 
     // Settings UI
     this.addSettingTab(
@@ -263,6 +270,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     const vps = settings.vpsConfigs[0];
     const notesUploader = new NotesUploaderAdapter(
       vps,
+      this.responseHandler,
       this.logger.child({
         module: 'NotesUploaderAdapter',
       })
@@ -337,6 +345,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     // Adapter HTTP pour AssetsUploaderPort : à implémenter
     const assetsUploader = new AssetsUploaderAdapter(
       vps,
+      this.responseHandler,
       this.logger.child({
         module: 'AssetsUploaderAdapter',
       })
@@ -359,7 +368,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
       progress: assetsProgress,
     });
 
-    // 8. Synthèse finale (notes + assets)
+    // 8. Notification finale selon le résultat des assets
     switch (assetsResult.type) {
       case 'noAssets': {
         // Normalement déjà filtré, mais on garde le cas pour être robuste.
@@ -408,39 +417,28 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
 
     const vps = settings.vpsConfigs[0];
 
-    const res: TestConnectionResult = await testVpsConnection(
+    const res: HttpResponse = await testVpsConnection(
       vps,
+      this.responseHandler,
       this.logger.child({
         module: 'HttpConnectionService',
       })
     );
 
-    if (res.message) {
-      this.logger.info('Test connection message:', res.message);
-    }
+    if (!res.isError) {
+      this.logger.info('VPS connection test succeeded');
+      this.logger.info(`Test connection message: ${res.text}`);
 
-    switch (res.status) {
-      case 'success':
-        new Notice(t.settings.testConnection.success);
-        break;
-      case 'failure':
-        new Notice(t.settings.testConnection.failed);
-        break;
-      case 'unexpected-response':
-        new Notice(t.settings.testConnection.unexpectedResponsePrefix + res);
-        break;
-      case 'invalid-json':
-        new Notice(t.settings.testConnection.invalidJson);
-        break;
-      case 'missing-api-key':
-        new Notice(t.settings.testConnection.missingApiKey);
-        break;
-      case 'invalid-url':
-        new Notice(t.settings.testConnection.invalidUrl);
-        break;
-      default:
-        new Notice(t.settings.testConnection.resultPrefix + res);
-        break;
+      new Notice(t.settings.testConnection.success);
+    } else {
+      this.logger.error('VPS connection test failed:', res.error);
+
+      new Notice(
+        t.settings.testConnection.failed +
+          (res.error instanceof Error
+            ? res.error.message
+            : JSON.stringify(res.error))
+      );
     }
   }
 }

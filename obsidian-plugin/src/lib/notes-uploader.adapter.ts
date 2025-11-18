@@ -4,6 +4,8 @@ import type { UploaderPort } from '../../../core-publishing/src/lib/ports/upload
 import type { VpsConfig } from '../../../core-publishing/src/lib/domain/VpsConfig';
 import { DomainFrontmatter, FolderConfig } from 'core-publishing/src';
 import { LoggerPort } from '../../../core-publishing/src/lib/ports/logger-port';
+import { HttpResponse } from 'core-publishing/src/lib/domain/HttpResponse';
+import { HandleHttpResponseUseCase } from 'core-publishing/src/lib/usecases/handle-http-response.usecase';
 
 type ApiNote = {
   id: string;
@@ -21,15 +23,21 @@ type ApiNote = {
 
 export class NotesUploaderAdapter implements UploaderPort {
   private readonly _logger: LoggerPort;
+  private readonly _handleResponse: HandleHttpResponseUseCase;
 
-  constructor(private readonly vpsConfig: VpsConfig, logger: LoggerPort) {
+  constructor(
+    private readonly vpsConfig: VpsConfig,
+    handleResponse: HandleHttpResponseUseCase,
+    logger: LoggerPort
+  ) {
     this._logger = logger;
+    this._handleResponse = handleResponse;
   }
 
-  async upload(notes: PublishableNote[]): Promise<void> {
+  async upload(notes: PublishableNote[]): Promise<boolean> {
     if (!Array.isArray(notes) || notes.length === 0) {
       this._logger.info('No notes to upload.');
-      return;
+      return false;
     }
 
     const vps = (notes[0] as any).vpsConfig ?? this.vpsConfig;
@@ -59,46 +67,23 @@ export class NotesUploaderAdapter implements UploaderPort {
         body: JSON.stringify(body),
       });
 
-      this._logger.debug(
-        `Upload response status: ${response.status}, body: `,
-        response.text
-      );
+      const result = await this._handleResponse.handleResponse(response);
 
-      // Handle HTTP status codes
-      if (response.status === 401) {
-        this._logger.error('Unauthorized (401): Invalid API key.');
-        return;
-      }
-      if (response.status === 403) {
-        this._logger.error('Forbidden (403): Access denied.');
-        return;
-      }
-      if (response.status === 400) {
-        this._logger.error('Bad Request (400):', response.text);
-        return;
-      }
-      if (response.status >= 500) {
-        this._logger.error(`Server error (${response.status}):`, response.text);
-        return;
-      }
-      if (response.status < 200 || response.status >= 300) {
+      if (result.isError) {
         this._logger.error(
-          `Unexpected HTTP status (${response.status}):`,
-          response.text
+          `Failed to upload notes: ${result.text}`,
+          result.error
         );
-        return;
+        return false;
       }
 
-      // Success (2xx)
-      const json = response.json;
-      const publishedCount = json?.publishedCount ?? 0;
-      this._logger.info(
-        `Successfully uploaded ${publishedCount} notes to VPS.`
-      );
-      return;
+      this._logger.info('Successfully uploaded notes to VPS');
+      this._logger.debug('Upload response:', result);
+
+      return true;
     } catch (error: any) {
       this._logger.error(`Exception during upload: `, error);
-      return;
+      return false;
     }
   }
 

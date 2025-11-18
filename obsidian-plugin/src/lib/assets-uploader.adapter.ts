@@ -3,6 +3,8 @@ import type { UploaderPort } from '../../../core-publishing/src/lib/ports/upload
 import type { VpsConfig } from '../../../core-publishing/src/lib/domain/VpsConfig';
 import type { ResolvedAssetFile } from '../../../core-publishing/src/lib/domain/ResolvedAssetFile';
 import type { LoggerPort } from '../../../core-publishing/src/lib/ports/logger-port';
+import { HandleHttpResponseUseCase } from 'core-publishing/src/lib/usecases/handle-http-response.usecase';
+import { HttpResponse } from 'core-publishing/src/lib/domain/HttpResponse';
 
 type ApiAsset = {
   relativePath: string;
@@ -14,16 +16,22 @@ type ApiAsset = {
 
 export class AssetsUploaderAdapter implements UploaderPort {
   private readonly _logger: LoggerPort;
+  private readonly _handleResponse: HandleHttpResponseUseCase;
 
-  constructor(private readonly vpsConfig: VpsConfig, logger: LoggerPort) {
+  constructor(
+    private readonly vpsConfig: VpsConfig,
+    handleResponse: HandleHttpResponseUseCase,
+    logger: LoggerPort
+  ) {
     this._logger = logger;
+    this._handleResponse = handleResponse;
     this._logger.debug('AssetsUploaderAdapter initialized');
   }
 
-  async upload(assets: ResolvedAssetFile[]): Promise<void> {
+  async upload(assets: ResolvedAssetFile[]): Promise<boolean> {
     if (!Array.isArray(assets) || assets.length === 0) {
       this._logger.info('No assets to upload.');
-      return;
+      return false;
     }
 
     const vps = (assets[0] as any).vpsConfig ?? this.vpsConfig;
@@ -50,9 +58,8 @@ export class AssetsUploaderAdapter implements UploaderPort {
       assetCount: apiAssets.length,
     });
 
-    let response;
     try {
-      response = await requestUrl({
+      const response = await requestUrl({
         url: vps.url.replace(/\/$/, '') + '/api/upload-assets',
         method: 'POST',
         headers: {
@@ -61,33 +68,31 @@ export class AssetsUploaderAdapter implements UploaderPort {
         },
         body: JSON.stringify(body),
       });
+
+      const result = await this._handleResponse.handleResponse(response);
+
+      this._logger.info('Assets upload completed');
+
+      if (result.isError) {
+        this._logger.error('Assets upload failed', {
+          error: result.error,
+          httpStatus: result.httpStatus,
+          text: result.text,
+        });
+
+        throw result.error;
+      }
+
+      this._logger.debug('Assets upload response', {
+        httpStatus: result.httpStatus,
+        text: result.text,
+      });
+
+      return true;
     } catch (err) {
       this._logger.error('HTTP request to upload assets failed', err);
       throw err;
     }
-
-    this._logger.debug('Received response from VPS', {
-      status: response.status,
-    });
-
-    if (response.status < 200 || response.status >= 300) {
-      this._logger.error(
-        `Asset upload failed with status ${response.status}: ${response.text}`
-      );
-      throw new Error(
-        `Asset upload failed with status ${response.status}: ${response.text}`
-      );
-    }
-
-    const json = response.json;
-    if (!json || json.ok !== true) {
-      this._logger.error('Upload API returned an error', json);
-      throw new Error(`Upload API returned an error: ${JSON.stringify(json)}`);
-    }
-
-    this._logger.info('Assets uploaded successfully', {
-      assetCount: apiAssets.length,
-    });
   }
 
   private async buildApiAsset(asset: ResolvedAssetFile): Promise<ApiAsset> {
