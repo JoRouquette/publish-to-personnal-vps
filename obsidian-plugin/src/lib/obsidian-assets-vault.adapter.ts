@@ -1,5 +1,5 @@
 import { AssetRef } from 'core-publishing/src/lib/domain/AssetRef';
-import { NoteWithAssets } from 'core-publishing/src/lib/domain/NoteWithAssets';
+import type { PublishableNote } from 'core-publishing/src/lib/domain/PublishableNote';
 import { ResolvedAssetFile } from 'core-publishing/src/lib/domain/ResolvedAssetFile';
 import { AssetsVaultPort } from 'core-publishing/src/lib/ports/assets-vault-port';
 import type { LoggerPort } from 'core-publishing/src/lib/ports/logger-port';
@@ -9,12 +9,12 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
   private readonly _logger: LoggerPort;
 
   constructor(private readonly app: App, logger: LoggerPort) {
-    this._logger = logger;
+    this._logger = logger.child({ adapter: 'ObsidianAssetsVaultAdapter' });
     this._logger.debug('ObsidianAssetsVaultAdapter initialized');
   }
 
   async resolveAssetForNote(
-    note: NoteWithAssets,
+    note: PublishableNote,
     asset: AssetRef,
     assetsFolder: string,
     enableVaultFallback: boolean
@@ -28,7 +28,7 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
       enableVaultFallback,
     });
 
-    // 1. On récupère la "cible" du wikilink d'asset
+    // 1. Déterminer la cible textuelle
     const target = this.extractLinkTarget(asset);
     if (!target) {
       this._logger.warn('Unable to extract link target from asset', asset);
@@ -36,29 +36,27 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
     }
 
     const allFiles = this.app.vault.getFiles();
+
     this._logger.debug('Searching for asset target', {
       target,
       assetsFolder: normalizedAssetsFolder,
-      enableVaultFallback,
       note: note.vaultPath,
     });
 
-    // target peut être "Tenebra1.jpg" ou "divinites/Tenebra1.jpg"
     const baseName = target.split('/').pop() ?? target;
 
-    // 2. Recherche prioritaire dans le dossier d'assets
-    let file: TFile | undefined = undefined;
+    // 2. Recherche prioritaire dans le dossier d’assets
+    let file: TFile | undefined;
 
     if (normalizedAssetsFolder) {
       file = allFiles.find((f) => {
         if (!isUnderFolder(f.path, normalizedAssetsFolder)) return false;
 
-        // cas 1 : chemin complet se termine par target (ex: "assets/divinites/Tenebra1.jpg")
         if (f.path.endsWith('/' + target) || f.path === target) return true;
 
-        // cas 2 : fallback sur le nom seul
         return f.name === baseName;
       });
+
       if (file) {
         this._logger.info('Asset found in assets folder', {
           filePath: file.path,
@@ -72,13 +70,13 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
       }
     }
 
-    // 3. Fallback : tout le vault si autorisé
+    // 3. Fallback : tout le vault
     if (!file && enableVaultFallback) {
       file = allFiles.find((f) => {
-        // même logique de matching, mais sans restriction de dossier
         if (f.path.endsWith('/' + target) || f.path === target) return true;
         return f.name === baseName;
       });
+
       if (file) {
         this._logger.info('Asset found in vault (fallback)', {
           filePath: file.path,
@@ -98,63 +96,56 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
       return null;
     }
 
+    // 4. Lecture binaire
+    this._logger.debug('Reading binary content for asset', {
+      filePath: file.path,
+    });
+
+    const content = await this.app.vault.readBinary(file);
+
     const relativeAssetPath = computeRelativeAssetPath(
       file.path,
       normalizedAssetsFolder
     );
 
     const resolved: ResolvedAssetFile = {
-      // chemin réel dans le vault
       vaultPath: file.path,
-      // nom de fichier
       fileName: file.name,
-      // chemin logique qu’on enverra au backend
       relativeAssetPath,
-    } as ResolvedAssetFile;
+      content,
+      // on laisse mimeType undefined : l’uploader le déduira via l’extension
+      mimeType: undefined,
+    };
 
-    this._logger.debug('Resolved asset file', {
-      resolved,
-    });
+    this._logger.debug('Resolved asset file', { resolved });
 
     return resolved;
   }
 
-  /**
-   * Essaie d’extraire la "link target" depuis AssetRef
-   * sans faire d’hypothèse agressive sur sa forme.
-   *
-   * Priorités :
-   *  - asset.fileName / asset.target / asset.linkText si dispo
-   *  - sinon parse asset.raw de la forme "![[Tenebra1.jpg|right|300]]"
-   */
   private extractLinkTarget(asset: AssetRef): string | null {
     this._logger.debug('Extracting link target from asset', { asset });
     const anyAsset = asset as any;
 
     if (typeof anyAsset.fileName === 'string' && anyAsset.fileName.trim()) {
-      this._logger.debug('Link target found via fileName', {
-        fileName: anyAsset.fileName,
-      });
-      return anyAsset.fileName.trim();
+      const v = anyAsset.fileName.trim();
+      this._logger.debug('Link target found via fileName', { fileName: v });
+      return v;
     }
 
     if (typeof anyAsset.target === 'string' && anyAsset.target.trim()) {
-      this._logger.debug('Link target found via target', {
-        target: anyAsset.target,
-      });
-      return anyAsset.target.trim();
+      const v = anyAsset.target.trim();
+      this._logger.debug('Link target found via target', { target: v });
+      return v;
     }
 
     if (typeof anyAsset.linkText === 'string' && anyAsset.linkText.trim()) {
-      this._logger.debug('Link target found via linkText', {
-        linkText: anyAsset.linkText,
-      });
-      return anyAsset.linkText.trim();
+      const v = anyAsset.linkText.trim();
+      this._logger.debug('Link target found via linkText', { linkText: v });
+      return v;
     }
 
     if (typeof anyAsset.raw === 'string') {
       const raw: string = anyAsset.raw;
-      // On essaie de récupérer l’intérieur du ![[...]]
       const match = raw.match(/!\[\[([^\]]+)\]\]/);
       const inner = (match ? match[1] : raw).trim();
 
@@ -163,7 +154,6 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
         return null;
       }
 
-      // inner peut contenir des modificateurs ITS: "Tenebra1.jpg|right|300"
       const firstPart = inner.split('|')[0].trim();
       this._logger.debug('Extracted link target from raw', { firstPart });
       return firstPart || null;
@@ -174,11 +164,7 @@ export class ObsidianAssetsVaultAdapter implements AssetsVaultPort {
   }
 }
 
-/**
- * Normalise un chemin de dossier Obsidian:
- *  - remplace les "\" par "/"
- *  - retire les "/" en début/fin
- */
+// helpers identiques
 function normalizeFolder(folder: string | null | undefined): string {
   if (!folder) return '';
   let f = folder.trim().replace(/\\/g, '/');
@@ -187,26 +173,12 @@ function normalizeFolder(folder: string | null | undefined): string {
   return f;
 }
 
-/**
- * Indique si path est dans (ou égal à) folder.
- */
 function isUnderFolder(path: string, folder: string): boolean {
   if (!folder) return false;
   const p = path.replace(/\\/g, '/');
   return p === folder || p.startsWith(folder + '/');
 }
 
-/**
- * Chemin logique de l’asset côté backend.
- *
- * - Si le fichier est dans le dossier d’assets : chemin relatif à ce dossier.
- *   ex: file.path = "assets/divinites/Tenebra1.jpg"
- *       assetsFolder = "assets"
- *       => "divinites/Tenebra1.jpg"
- *
- * - Sinon : on renvoie le path complet (ex: "images/Tenebra1.jpg").
- *   Ça respecte le principe "même route que dans le vault".
- */
 function computeRelativeAssetPath(
   filePath: string,
   normalizedAssetsFolder: string

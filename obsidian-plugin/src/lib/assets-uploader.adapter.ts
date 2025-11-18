@@ -16,13 +16,15 @@ type ApiAsset = {
 export class AssetsUploaderAdapter implements UploaderPort {
   private readonly _logger: LoggerPort;
   private readonly _handleResponse: HandleHttpResponseUseCase<RequestUrlResponse>;
+  private readonly vpsConfig: VpsConfig;
 
   constructor(
-    private readonly vpsConfig: VpsConfig,
+    vpsConfig: VpsConfig,
     handleResponse: HandleHttpResponseUseCase<RequestUrlResponse>,
     logger: LoggerPort
   ) {
-    this._logger = logger;
+    this.vpsConfig = vpsConfig;
+    this._logger = logger.child({ adapter: 'AssetsUploaderAdapter' });
     this._handleResponse = handleResponse;
     this._logger.debug('AssetsUploaderAdapter initialized');
   }
@@ -32,9 +34,6 @@ export class AssetsUploaderAdapter implements UploaderPort {
       this._logger.info('No assets to upload.');
       return false;
     }
-
-    const vps = (assets[0] as any).vpsConfig ?? this.vpsConfig;
-    const apiKeyPlain = vps.apiKey;
 
     this._logger.debug('Preparing to upload assets', {
       assetCount: assets.length,
@@ -51,19 +50,22 @@ export class AssetsUploaderAdapter implements UploaderPort {
     }
 
     const body = { assets: apiAssets };
+    const vps = this.vpsConfig;
+
+    const url = vps.url.replace(/\/$/, '') + '/api/assets/upload';
 
     this._logger.info('Uploading assets to VPS', {
-      url: vps.url,
+      url,
       assetCount: apiAssets.length,
     });
 
     try {
       const response = await requestUrl({
-        url: vps.url.replace(/\/$/, '') + '/api/upload-assets',
+        url,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': apiKeyPlain,
+          'x-api-key': vps.apiKey,
         },
         body: JSON.stringify(body),
         throw: false,
@@ -80,7 +82,7 @@ export class AssetsUploaderAdapter implements UploaderPort {
           text: result.text,
         });
 
-        throw result.error;
+        throw result.error ?? new Error('Unknown assets upload error');
       }
 
       this._logger.debug('Assets upload response', {
@@ -97,12 +99,26 @@ export class AssetsUploaderAdapter implements UploaderPort {
 
   private async buildApiAsset(asset: ResolvedAssetFile): Promise<ApiAsset> {
     this._logger.debug('Building API asset', { fileName: asset.fileName });
+
+    const mimeType =
+      asset.mimeType ??
+      this.guessMimeType(asset.fileName) ??
+      'application/octet-stream';
+
+    const content = asset.content;
+    if (!content) {
+      this._logger.error('ResolvedAssetFile has no content', { asset });
+      throw new Error('ResolvedAssetFile has no content');
+    }
+
+    const contentBase64 = await this.toBase64(content);
+
     return {
       relativePath: asset.relativeAssetPath,
       vaultPath: asset.vaultPath,
       fileName: asset.fileName,
-      mimeType: (asset as any).mimeType ?? this.guessMimeType(asset.fileName),
-      contentBase64: await this.toBase64((asset as any).content),
+      mimeType,
+      contentBase64,
     };
   }
 
@@ -117,7 +133,9 @@ export class AssetsUploaderAdapter implements UploaderPort {
         content.byteLength
       ).toString('base64');
     }
-    this._logger.error('Unsupported asset content type');
+    this._logger.error('Unsupported asset content type', {
+      contentType: typeof content,
+    });
     throw new Error('Unsupported asset content type');
   }
 
@@ -137,6 +155,16 @@ export class AssetsUploaderAdapter implements UploaderPort {
         return 'image/webp';
       case 'pdf':
         return 'application/pdf';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'wav':
+        return 'audio/wav';
+      case 'ogg':
+        return 'audio/ogg';
+      case 'mp4':
+        return 'video/mp4';
+      case 'webm':
+        return 'video/webm';
       default:
         return 'application/octet-stream';
     }

@@ -1,6 +1,3 @@
-import { AssetDisplayOptions } from './AssetDisplayOptions';
-import { AssetKind } from './AssetKind';
-
 /**
  * Représente un embed de type Obsidian `![[...]]` qui pointe vers un asset
  * (image, audio, video, pdf, etc.).
@@ -22,6 +19,7 @@ export interface AssetRef {
 
   /**
    * Type d’asset déduit de l’extension.
+   *
    */
   kind: AssetKind;
 
@@ -30,3 +28,14 @@ export interface AssetRef {
    */
   display: AssetDisplayOptions;
 }
+
+export type AssetKind = 'image' | 'audio' | 'video' | 'pdf' | 'other';
+
+export interface AssetDisplayOptions {
+  alignment?: AssetAlignment;
+  width?: number; // px
+  classes: string[]; // classes ITS ou CSS arbitraires
+  rawModifiers: string[]; // tous les segments après le chemin, bruts
+}
+
+export type AssetAlignment = 'left' | 'right' | 'center';

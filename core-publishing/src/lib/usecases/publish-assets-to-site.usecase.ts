@@ -1,10 +1,13 @@
 import type { AssetRef } from '../domain/AssetRef.js';
-import { NoteWithAssets } from '../domain/NoteWithAssets.js';
-import { ResolvedAssetFile } from '../domain/ResolvedAssetFile.js';
+import {
+  extractNotesWithAssets,
+  type NoteWithAssets,
+} from '../domain/NoteWithAssets.js';
+import type { ResolvedAssetFile } from '../domain/ResolvedAssetFile.js';
 import type { UploaderPort } from '../domain/uploader-port.js';
 import type { AssetsVaultPort } from '../ports/assets-vault-port.js';
-import type { ProgressPort } from '../ports/progress-port.js';
 import type { LoggerPort } from '../ports/logger-port.js';
+import type { ProgressPort } from '../ports/progress-port.js';
 
 export type AssetPublishFailureReason =
   | 'not-found'
@@ -27,9 +30,6 @@ export type AssetsPublicationResult =
   | { type: 'noAssets' }
   | { type: 'error'; error: unknown };
 
-/**
- * Orchestrates asset resolution and upload for a set of notes.
- */
 export class PublishAssetsToSiteUseCase {
   private readonly _logger: LoggerPort;
 
@@ -38,32 +38,25 @@ export class PublishAssetsToSiteUseCase {
     private readonly assetsUploaderPort: UploaderPort,
     logger: LoggerPort
   ) {
-    this._logger = logger;
+    this._logger = logger.child({
+      useCase: 'PublishAssetsToSiteUseCase',
+    });
   }
 
   async execute(params: {
-    notes: NoteWithAssets[];
+    notes: NoteWithAssets[] | Array<unknown>; // tolérant, on refiltre derrière
     assetsFolder: string;
     enableAssetsVaultFallback: boolean;
     progress?: ProgressPort;
   }): Promise<AssetsPublicationResult> {
     const { notes, assetsFolder, enableAssetsVaultFallback, progress } = params;
 
-    this._logger.info(
-      `Starting asset publication for ${notes.length} notes (assetsFolder=${assetsFolder}, enableAssetsVaultFallback=${enableAssetsVaultFallback})`
+    const notesWithAssets = extractNotesWithAssets(
+      notes as any as NoteWithAssets[]
     );
 
-    // 1. Collect all assets to publish
-    const collected: Array<{
-      noteId: string;
-      asset: AssetRef;
-      resolved: ResolvedAssetFile | null;
-    }> = [];
-
-    const failures: AssetPublishFailure[] = [];
-
-    const notesWithAssets = notes.filter(
-      (n) => Array.isArray(n.assets) && n.assets.length > 0
+    this._logger.info(
+      `Starting asset publication for ${notesWithAssets.length} notes (assetsFolder=${assetsFolder}, enableAssetsVaultFallback=${enableAssetsVaultFallback})`
     );
 
     if (notesWithAssets.length === 0) {
@@ -71,34 +64,38 @@ export class PublishAssetsToSiteUseCase {
       return { type: 'noAssets' };
     }
 
-    let totalAssets = 0;
+    const failures: AssetPublishFailure[] = [];
+    const resolvedEntries: Array<{
+      noteId: string;
+      asset: AssetRef;
+      file: ResolvedAssetFile | null;
+    }> = [];
+
+    // 1. Résolution des assets (mais pas d’upload ici)
     for (const note of notesWithAssets) {
-      for (const asset of note.assets ?? []) {
+      for (const asset of note.assets) {
         try {
           this._logger.debug(
-            `Resolving asset for noteId ${note.noteId}`,
-            'asset=',
+            `Resolving asset for noteId ${note.noteId} asset: `,
             asset
           );
-          const resolved = await this.assetsVaultPort.resolveAssetForNote(
+
+          const file = await this.assetsVaultPort.resolveAssetForNote(
             note,
             asset,
             assetsFolder,
             enableAssetsVaultFallback
           );
-          collected.push({ noteId: note.noteId, asset, resolved });
-          totalAssets += 1;
+
+          resolvedEntries.push({ noteId: note.noteId, asset, file });
+
           this._logger.debug(
-            `Resolved asset for noteId ${note.noteId}`,
-            'asset=',
-            asset,
-            `resolved= `,
-            !!resolved
+            `Resolved asset for noteId ${note.noteId} -> found=${!!file}`
           );
         } catch (error) {
           this._logger.warn(
-            `Failed to resolve asset for noteId ${note.noteId} asset= ${asset}: `,
-            error
+            `Failed to resolve asset for noteId ${note.noteId}`,
+            { asset, error }
           );
           failures.push({
             noteId: note.noteId,
@@ -110,9 +107,32 @@ export class PublishAssetsToSiteUseCase {
       }
     }
 
-    if (collected.length === 0 && failures.length > 0) {
+    // 2. Marquer les not-found
+    for (const entry of resolvedEntries) {
+      if (!entry.file) {
+        failures.push({
+          noteId: entry.noteId,
+          asset: entry.asset,
+          reason: 'not-found',
+        });
+      }
+    }
+
+    // 3. Construire la liste de fichiers uniques à uploader
+    const uniqueByVaultPath = new Map<string, ResolvedAssetFile>();
+
+    for (const entry of resolvedEntries) {
+      if (!entry.file) continue;
+      if (!uniqueByVaultPath.has(entry.file.vaultPath)) {
+        uniqueByVaultPath.set(entry.file.vaultPath, entry.file);
+      }
+    }
+
+    const uniqueAssets = Array.from(uniqueByVaultPath.values());
+
+    if (uniqueAssets.length === 0) {
       this._logger.info(
-        `No assets resolved, but failures occurred: ${failures.length} failures`
+        `No assets resolved to files. Failures count=${failures.length}`
       );
       return {
         type: 'success',
@@ -121,68 +141,38 @@ export class PublishAssetsToSiteUseCase {
       };
     }
 
-    progress?.start(totalAssets);
-    this._logger.info(`Publishing ${totalAssets} assets...`);
-
-    let publishedAssetsCount = 0;
+    // On aligne la progression sur le nombre de fichiers uniques réellement envoyés
+    progress?.start(uniqueAssets.length);
+    this._logger.info(
+      `Uploading ${uniqueAssets.length} unique asset file(s)...`
+    );
 
     try {
-      // 2. Upload all resolved assets
-      for (const entry of collected) {
-        if (!entry.resolved) {
-          this._logger.warn(
-            `Asset not found for noteId ${entry.noteId} asset= ${entry.asset}`
-          );
-          failures.push({
-            noteId: entry.noteId,
-            asset: entry.asset,
-            reason: 'not-found',
-          });
-          progress?.advance(1);
-          continue;
-        }
-        try {
-          this._logger.debug(
-            `Uploading asset for noteId ${entry.noteId} asset= ${entry.asset}`
-          );
+      const success = await this.assetsUploaderPort.upload(uniqueAssets);
 
-          const success = await this.assetsUploaderPort.upload([
-            entry.resolved,
-          ]);
-
-          if (!success) {
-            this._logger.error(
-              `Asset upload reported failure for noteId ${entry.noteId} asset= ${entry.asset}`
-            );
-            throw new Error('Upload reported failure');
-          }
-
-          publishedAssetsCount += 1;
-          this._logger.info(
-            `Successfully uploaded asset for noteId ${entry.noteId} asset= ${entry.asset}`
-          );
-        } catch (error) {
-          this._logger.error(
-            `Failed to upload asset for noteId ${entry.noteId} asset= ${entry.asset}: `,
-            error
-          );
-          failures.push({
-            noteId: entry.noteId,
-            asset: entry.asset,
-            reason: 'upload-error',
-            error,
-          });
-        }
-        progress?.advance(1);
+      if (!success) {
+        this._logger.error(
+          'Assets uploader reported failure for the whole batch'
+        );
+        // Cas "échec global" : on remonte en type 'error' plutôt que success+failures
+        progress?.finish();
+        return {
+          type: 'error',
+          error: new Error('Assets uploader reported failure'),
+        };
       }
 
+      // Toute la batch considérée comme uploadée
+      progress?.advance(uniqueAssets.length);
       progress?.finish();
+
       this._logger.info(
-        `Asset publication finished: ${publishedAssetsCount} assets published, ${failures.length} failures`
+        `Asset publication finished: ${uniqueAssets.length} assets uploaded, ${failures.length} failure(s) during resolution`
       );
+
       return {
         type: 'success',
-        publishedAssetsCount,
+        publishedAssetsCount: uniqueAssets.length,
         failures,
       };
     } catch (error) {
