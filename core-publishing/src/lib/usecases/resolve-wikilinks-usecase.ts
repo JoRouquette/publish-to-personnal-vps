@@ -1,5 +1,6 @@
 import type { WikilinkRef } from '../domain/WikilinkRef';
 import type { ResolvedWikilink } from '../domain/ResolvedWikilink';
+import { LoggerPort } from '../ports/logger-port';
 
 export interface NoteWikilinks {
   noteId: string;
@@ -34,6 +35,12 @@ function normalizeKey(key: string): string {
 }
 
 export class ResolveWikilinksUseCase {
+  private readonly _logger: LoggerPort;
+
+  constructor(logger: LoggerPort) {
+    this._logger = logger.child({ useCase: ResolveWikilinksUseCase.name });
+  }
+
   execute(
     notes: NoteWikilinks[],
     targets: WikilinkTargetDescriptor[]

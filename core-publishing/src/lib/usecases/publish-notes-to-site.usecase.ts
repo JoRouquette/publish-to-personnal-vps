@@ -15,6 +15,7 @@ import { DetectWikilinksUseCase } from './detect-wikilinks.usecase.js';
 import { EvaluateIgnoreRulesUseCase } from './evaluate-ignore-rules.usecase.js';
 import { NormalizeFrontmatterUseCase } from './normalize-frontmatter.usecase.js';
 import { RenderInlineDataviewUseCase } from './render-inline-dataview.usecase.js';
+import { ResolveWikilinksUseCase } from './resolve-wikilinks-usecase.js';
 
 export type PublicationResult =
   | { type: 'success'; publishedCount: number; notes: PublishableNote[] }
@@ -47,10 +48,11 @@ export class PublishToSiteUseCase {
 
   private readonly normalizeFrontmatter: NormalizeFrontmatterUseCase;
   private readonly evaluateIgnoreRules: EvaluateIgnoreRulesUseCase;
-  private readonly renderInlineDataview: RenderInlineDataviewUseCase;
   private readonly detectAssets: DetectAssetsUseCase;
   private readonly detectWikilinks: DetectWikilinksUseCase;
+  private readonly resolveWikilinks: ResolveWikilinksUseCase;
   private readonly computeRouting: ComputeRoutingUseCase;
+  private readonly renderInlineDataview: RenderInlineDataviewUseCase;
 
   constructor(
     private readonly vaultPort: VaultPort<CollectedNote[]>,
@@ -59,15 +61,16 @@ export class PublishToSiteUseCase {
     logger: LoggerPort,
     private readonly contentSanitizer: ContentSanitizer = new DefaultContentSanitizer()
   ) {
-    this._logger = logger.child({ useCase: PublishToSiteUseCase.name });
+    this._logger = logger.child({ useCase: 'PublishToSiteUseCase' });
     this._logger.debug('PublishToSiteUseCase initialized');
 
     this.normalizeFrontmatter = new NormalizeFrontmatterUseCase(this._logger);
     this.evaluateIgnoreRules = new EvaluateIgnoreRulesUseCase(this._logger);
-    this.renderInlineDataview = new RenderInlineDataviewUseCase(this._logger);
     this.detectAssets = new DetectAssetsUseCase(this._logger);
     this.detectWikilinks = new DetectWikilinksUseCase(this._logger);
+    this.resolveWikilinks = new ResolveWikilinksUseCase(this._logger);
     this.computeRouting = new ComputeRoutingUseCase(this._logger);
+    this.renderInlineDataview = new RenderInlineDataviewUseCase(this._logger);
   }
 
   async execute(
@@ -97,7 +100,7 @@ export class PublishToSiteUseCase {
       vpsConfig: any;
     }> = [];
 
-    // 1) Collecte brute
+    // Collecte brute
     for (const folder of settings.folders) {
       const vpsConfig = vpsById.get(folder.vpsId);
       if (!vpsConfig) {
@@ -144,19 +147,28 @@ export class PublishToSiteUseCase {
 
     const publishable: PublishableNote[] = [];
 
-    // 2) Pipeline par note
+    // Pipeline par note
     for (const raw of collected) {
       const notePipelineLogger = this._logger.child({ step: 'notePipeline' });
 
-      // 2.a) normalize frontmatter
-      const domainFrontmatter = this.normalizeFrontmatter.execute({
-        raw: raw.frontmatter,
+      // normalize frontmatter
+      const domainFrontmatter = this.normalizeFrontmatter.execute(
+        raw.frontmatter
+      );
+
+      notePipelineLogger.debug('Normalized frontmatter', {
+        vaultPath: raw.vaultPath,
+        frontmatter: domainFrontmatter,
       });
 
-      // 2.b) ignore rules
+      // ignore rules
       const eligibility = this.evaluateIgnoreRules.execute({
         frontmatter: domainFrontmatter,
         rules: settings.ignoreRules ?? null,
+      });
+      notePipelineLogger.debug('Ignore rules evaluation', {
+        vaultPath: raw.vaultPath,
+        eligibility,
       });
 
       if (!eligibility.isPublishable) {
@@ -167,7 +179,7 @@ export class PublishToSiteUseCase {
         continue;
       }
 
-      // 2.c) construire le noyau de note
+      // construire le noyau de note
       let note: PublishableNote = {
         noteId: this.guidGenerator.generateGuid(),
         title: this.extractFileNameWithoutExt(raw.vaultPath),
@@ -179,24 +191,23 @@ export class PublishToSiteUseCase {
         vpsConfig: raw.vpsConfig,
       };
 
-      // 2.d) pipeline contenu : dataview inline
+      // dataview inline
       note = this.renderInlineDataview.execute(note);
 
-      // 2.e) pipeline contenu : sanitize markdown
+      // sanitize markdown
       note = this.contentSanitizer.sanitizeNote(note, raw.folder.sanitization);
 
-      // 2.f) pipeline note : assets
+      // assets
       note = this.detectAssets.execute(note);
 
-      // 2.g) pipeline note : wikilinks
+      // wikilinks
       note = this.detectWikilinks.execute(note);
 
-      // 2.h) pipeline note : routing
+      // routing
       note = this.computeRouting.execute(note);
 
       notePipelineLogger.debug('Note ready for publishing', {
-        noteId: note.noteId,
-        vaultPath: note.vaultPath,
+        note: note,
       });
       publishable.push(note);
       progress?.advance(1);
@@ -208,7 +219,7 @@ export class PublishToSiteUseCase {
       return { type: 'success', publishedCount: 0, notes: [] };
     }
 
-    // 3) Regroupement par VPS et upload
+    // Regroupement par VPS et upload
     const byVps = new Map<string, PublishableNote[]>();
     for (const note of publishable) {
       const key = note.vpsConfig.id;
@@ -242,6 +253,7 @@ export class PublishToSiteUseCase {
         publishedCount,
       });
       progress?.finish();
+
       return { type: 'success', publishedCount, notes: publishable };
     } catch (error) {
       this._logger.error('Error during publishing', error);
