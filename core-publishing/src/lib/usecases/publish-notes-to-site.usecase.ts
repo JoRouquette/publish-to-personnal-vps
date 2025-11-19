@@ -6,7 +6,7 @@ import type { PublishPluginSettings } from '../domain/PublishPluginSettings.js';
 import { DefaultContentSanitizer } from '../domain/services/default-content-sanitizer.js';
 import type { UploaderPort } from '../domain/uploader-port.js';
 import type { GuidGeneratorPort } from '../ports/guid-generator-port.js';
-import type { LoggerPort } from '../ports/logger-port.js';
+import { LogLevel, type LoggerPort } from '../ports/logger-port.js';
 import type { ProgressPort } from '../ports/progress-port.js';
 import type { VaultPort } from '../ports/vault-port.js';
 import { ComputeRoutingUseCase } from './compute-routing.usecase.js';
@@ -44,8 +44,6 @@ export type PublicationResult =
  * se font dans d'autres usecases de workflow sur la liste de notes publishable.
  */
 export class PublishToSiteUseCase {
-  private readonly _logger: LoggerPort;
-
   private readonly normalizeFrontmatter: NormalizeFrontmatterUseCase;
   private readonly evaluateIgnoreRules: EvaluateIgnoreRulesUseCase;
   private readonly detectAssets: DetectAssetsUseCase;
@@ -58,29 +56,32 @@ export class PublishToSiteUseCase {
     private readonly vaultPort: VaultPort<CollectedNote[]>,
     private readonly uploaderPort: UploaderPort,
     private readonly guidGenerator: GuidGeneratorPort,
-    logger: LoggerPort,
+    private readonly logger: LoggerPort,
     private readonly contentSanitizer: ContentSanitizer = new DefaultContentSanitizer()
   ) {
-    this._logger = logger.child({ useCase: 'PublishToSiteUseCase' });
-    this._logger.debug('PublishToSiteUseCase initialized');
+    this.logger = logger.child(
+      { usecase: 'PublishToSiteUseCase' },
+      LogLevel.debug
+    );
+    this.logger.debug('PublishToSiteUseCase initialized');
 
-    this.normalizeFrontmatter = new NormalizeFrontmatterUseCase(this._logger);
-    this.evaluateIgnoreRules = new EvaluateIgnoreRulesUseCase(this._logger);
-    this.detectAssets = new DetectAssetsUseCase(this._logger);
-    this.detectWikilinks = new DetectWikilinksUseCase(this._logger);
-    this.resolveWikilinks = new ResolveWikilinksUseCase(this._logger);
-    this.computeRouting = new ComputeRoutingUseCase(this._logger);
-    this.renderInlineDataview = new RenderInlineDataviewUseCase(this._logger);
+    this.normalizeFrontmatter = new NormalizeFrontmatterUseCase(logger);
+    this.evaluateIgnoreRules = new EvaluateIgnoreRulesUseCase(logger);
+    this.detectAssets = new DetectAssetsUseCase(logger);
+    this.detectWikilinks = new DetectWikilinksUseCase(logger);
+    this.resolveWikilinks = new ResolveWikilinksUseCase(logger);
+    this.computeRouting = new ComputeRoutingUseCase(logger);
+    this.renderInlineDataview = new RenderInlineDataviewUseCase(logger);
   }
 
   async execute(
     settings: PublishPluginSettings,
     progress?: ProgressPort
   ): Promise<PublicationResult> {
-    this._logger.info('Starting publish-to-site execution');
+    this.logger.info('Starting publish-to-site execution');
 
     if (!settings?.vpsConfigs?.length || !settings?.folders?.length) {
-      this._logger.warn('No VPS configs or folders found in settings');
+      this.logger.warn('No VPS configs or folders found in settings');
       return { type: 'noConfig' };
     }
 
@@ -104,7 +105,7 @@ export class PublishToSiteUseCase {
     for (const folder of settings.folders) {
       const vpsConfig = vpsById.get(folder.vpsId);
       if (!vpsConfig) {
-        this._logger.warn('Missing VPS config for folder', {
+        this.logger.warn('Missing VPS config for folder', {
           folderId: folder.id,
           vpsId: folder.vpsId,
         });
@@ -112,7 +113,7 @@ export class PublishToSiteUseCase {
         continue;
       }
 
-      this._logger.debug('Collecting notes from folder', {
+      this.logger.debug('Collecting notes from folder', {
         folderId: folder.id,
       });
       const notes = await this.vaultPort.collectFromFolder(folder);
@@ -129,27 +130,30 @@ export class PublishToSiteUseCase {
     }
 
     if (missingVps.length > 0) {
-      this._logger.error('Some folders are missing VPS configs', {
+      this.logger.error('Some folders are missing VPS configs', {
         missingVps,
       });
       return { type: 'missingVpsConfig', foldersWithoutVps: missingVps };
     }
 
     if (collected.length === 0) {
-      this._logger.info('No notes collected for publishing');
+      this.logger.info('No notes collected for publishing');
       progress?.start(0);
       progress?.finish();
       return { type: 'success', publishedCount: 0, notes: [] };
     }
 
     progress?.start(collected.length);
-    this._logger.info('Collected notes', { count: collected.length });
+    this.logger.info('Collected notes', { count: collected.length });
 
     const publishable: PublishableNote[] = [];
 
     // Pipeline par note
     for (const raw of collected) {
-      const notePipelineLogger = this._logger.child({ step: 'notePipeline' });
+      const notePipelineLogger = this.logger.child(
+        { step: 'notePipeline', note: raw.vaultPath },
+        this.logger.level
+      );
 
       // normalize frontmatter
       const domainFrontmatter = this.normalizeFrontmatter.execute(
@@ -206,15 +210,15 @@ export class PublishToSiteUseCase {
       // routing
       note = this.computeRouting.execute(note);
 
-      notePipelineLogger.debug('Note ready for publishing', {
-        note: note,
-      });
+      notePipelineLogger.debug(`Note ${note.title} ready for publishing.`);
+      notePipelineLogger.debug(JSON.stringify(note, null, 2));
+
       publishable.push(note);
       progress?.advance(1);
     }
 
     if (publishable.length === 0) {
-      this._logger.info('No publishable notes after filtering');
+      this.logger.info('No publishable notes after filtering');
       progress?.finish();
       return { type: 'success', publishedCount: 0, notes: [] };
     }
@@ -235,28 +239,28 @@ export class PublishToSiteUseCase {
 
     try {
       for (const [vpsId, notes] of byVps.entries()) {
-        this._logger.info('Uploading notes to VPS', {
+        this.logger.info('Uploading notes to VPS', {
           vpsId,
           noteCount: notes.length,
         });
         const success = await this.uploaderPort.upload(notes);
 
         if (!success) {
-          this._logger.error('Failed to upload notes to VPS', { vpsId });
+          this.logger.error('Failed to upload notes to VPS', { vpsId });
           throw new Error(`Upload failed for VPS ID ${vpsId}`);
         }
 
         publishedCount += notes.length;
       }
 
-      this._logger.info('Publishing completed successfully', {
+      this.logger.info('Publishing completed successfully', {
         publishedCount,
       });
       progress?.finish();
 
       return { type: 'success', publishedCount, notes: publishable };
     } catch (error) {
-      this._logger.error('Error during publishing', error);
+      this.logger.error('Error during publishing', error);
       progress?.finish();
       return { type: 'error', error };
     }

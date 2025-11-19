@@ -1,11 +1,12 @@
 import type { DomainFrontmatter } from '../domain/DomainFrontmatter';
 import { LoggerPort } from '../ports/logger-port';
+import { normalizePropertyKey } from '../utils/string.utils';
 
 export class NormalizeFrontmatterUseCase {
   private readonly _logger: LoggerPort;
 
   constructor(logger: LoggerPort) {
-    this._logger = logger.child({ useCase: 'NormalizeFrontmatterUseCase' });
+    this._logger = logger.child({ usecase: 'NormalizeFrontmatterUseCase' });
     this._logger.debug('NormalizeFrontmatterUseCase initialized');
   }
 
@@ -22,20 +23,25 @@ export class NormalizeFrontmatterUseCase {
     const nested: Record<string, unknown> = {};
 
     for (const [key, value] of Object.entries(input)) {
-      this._logger.debug('Processing frontmatter entry', { key, value });
-      flat[key] = value;
-      if (key.includes('.')) {
-        this._logger.debug('Setting nested value', { key, value });
-        this.setNestedValue(nested, key, value);
+      const normalizedKey = normalizePropertyKey(key);
+      this._logger.debug('Processing frontmatter entry', {
+        key,
+        normalizedKey,
+        value,
+      });
+      flat[normalizedKey] = value;
+      if (normalizedKey.includes('.')) {
+        this._logger.debug('Setting nested value', { normalizedKey, value });
+        this.setNestedValue(nested, normalizedKey, value);
       } else {
         // Only assign if not already set by a dotted key or subkeys
         if (
-          typeof nested[key] === 'undefined' ||
-          (nested[key] &&
-            typeof nested[key] === 'object' &&
-            Object.keys(nested[key] as object).length === 0)
+          typeof nested[normalizedKey] === 'undefined' ||
+          (nested[normalizedKey] &&
+            typeof nested[normalizedKey] === 'object' &&
+            Object.keys(nested[normalizedKey] as object).length === 0)
         ) {
-          nested[key] = value;
+          nested[normalizedKey] = value;
         }
       }
     }
@@ -49,7 +55,7 @@ export class NormalizeFrontmatterUseCase {
     path: string,
     value: unknown
   ): void {
-    const segments = path.split('.');
+    const segments = path.split('.').map(normalizePropertyKey);
     let current: any = target;
 
     for (let i = 0; i < segments.length; i++) {

@@ -39,7 +39,7 @@ export class PublishAssetsToSiteUseCase {
     logger: LoggerPort
   ) {
     this._logger = logger.child({
-      useCase: 'PublishAssetsToSiteUseCase',
+      usecase: 'PublishAssetsToSiteUseCase',
     });
   }
 

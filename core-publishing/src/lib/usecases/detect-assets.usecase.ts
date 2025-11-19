@@ -79,7 +79,7 @@ export class DetectAssetsUseCase {
   private readonly _logger: LoggerPort;
 
   constructor(logger: LoggerPort) {
-    this._logger = logger.child({ useCase: DetectAssetsUseCase.name });
+    this._logger = logger.child({ usecase: 'DetectAssetsUseCase' });
   }
 
   execute(note: PublishableNote): PublishableNote {

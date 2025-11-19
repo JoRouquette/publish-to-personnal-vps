@@ -2,14 +2,25 @@ import {
   LoggerPort,
   LogLevel,
 } from 'core-publishing/src/lib/ports/logger-port';
+import { DEFAULT_LOGGER_LEVEL } from './constants/DEFAULT_LOGGER_LEVEL';
+
+/*
+export enum LogLevel {
+  error = 1,
+  warn = 2,
+  info = 4,
+  debug = 8,
+}
+
+*/
 
 export class ConsoleLoggerAdapter implements LoggerPort {
-  private _level: LogLevel = LogLevel.none;
+  private _level: LogLevel;
   private _context: Record<string, unknown>;
 
-  constructor(context: Record<string, unknown>, level: LogLevel) {
+  constructor(context: Record<string, unknown>, level?: LogLevel) {
     this._context = context;
-    this._level = this.getComposedLevel(level ?? LogLevel.info);
+    this._level = this.getComposedLevel(level ?? DEFAULT_LOGGER_LEVEL);
   }
 
   public set level(level: LogLevel) {
@@ -20,9 +31,18 @@ export class ConsoleLoggerAdapter implements LoggerPort {
     return this._level;
   }
 
-  child(context: Record<string, unknown>): this {
-    this._context = { ...this._context, ...context };
-    return this;
+  child(
+    context: Record<string, unknown>,
+    level?: LogLevel
+  ): ConsoleLoggerAdapter {
+    let logLevel;
+    if (level === undefined) {
+      logLevel = this._level;
+    } else {
+      logLevel = this.getComposedLevel(level);
+    }
+
+    return new ConsoleLoggerAdapter({ ...this._context, ...context }, logLevel);
   }
 
   debug(message: string, ...args: unknown[]): void {
@@ -30,12 +50,12 @@ export class ConsoleLoggerAdapter implements LoggerPort {
       return;
     }
 
-    console.debug({
-      context: this._context,
-      datetime: this.getCurrentDatetime(),
-      message: message,
-      arguments: { ...args },
-    });
+    console.debug(
+      `[${this.getCurrentDatetime()}] [debug]`,
+      message,
+      ...args,
+      this._context
+    );
   }
 
   info(message: string, ...args: unknown[]): void {
@@ -43,12 +63,12 @@ export class ConsoleLoggerAdapter implements LoggerPort {
       return;
     }
 
-    console.info({
-      context: this._context,
-      datetime: this.getCurrentDatetime(),
-      message: message,
-      arguments: { ...args },
-    });
+    console.info(
+      `[${this.getCurrentDatetime()}] [info]`,
+      message,
+      ...args,
+      this._context
+    );
   }
 
   warn(message: string, ...args: unknown[]): void {
@@ -56,12 +76,12 @@ export class ConsoleLoggerAdapter implements LoggerPort {
       return;
     }
 
-    console.warn({
-      context: this._context,
-      datetime: this.getCurrentDatetime(),
-      message: message,
-      arguments: { ...args },
-    });
+    console.warn(
+      `[${this.getCurrentDatetime()}] [warn]`,
+      message,
+      ...args,
+      this._context
+    );
   }
 
   error(message: string, ...args: unknown[]): void {
@@ -69,12 +89,12 @@ export class ConsoleLoggerAdapter implements LoggerPort {
       return;
     }
 
-    console.error({
-      context: this._context,
-      datetime: this.getCurrentDatetime(),
-      message: message,
-      arguments: { ...args },
-    });
+    console.error(
+      `[${this.getCurrentDatetime()}] [error]`,
+      message,
+      ...args,
+      this._context
+    );
   }
 
   private getCurrentDatetime(): string {
@@ -82,21 +102,29 @@ export class ConsoleLoggerAdapter implements LoggerPort {
   }
 
   private getComposedLevel(level: LogLevel): LogLevel {
+    // Si le niveau contient plusieurs bits, on considère que c'est déjà un masque
+    const bits = [
+      LogLevel.error,
+      LogLevel.warn,
+      LogLevel.info,
+      LogLevel.debug,
+    ].filter((l) => (level & l) !== 0).length;
+
+    if (bits > 1) {
+      return level;
+    }
+
     switch (level) {
       case LogLevel.debug:
         return LogLevel.debug | LogLevel.info | LogLevel.warn | LogLevel.error;
-
       case LogLevel.info:
         return LogLevel.info | LogLevel.warn | LogLevel.error;
-
       case LogLevel.warn:
         return LogLevel.warn | LogLevel.error;
-
       case LogLevel.error:
         return LogLevel.error;
-
       default:
-        return LogLevel.none;
+        return this.getComposedLevel(DEFAULT_LOGGER_LEVEL);
     }
   }
 }

@@ -29,7 +29,7 @@ export class ComputeRoutingUseCase {
   private readonly _logger: LoggerPort;
 
   constructor(logger: LoggerPort) {
-    this._logger = logger.child({ useCase: ComputeRoutingUseCase.name });
+    this._logger = logger.child({ usecase: 'ComputeRoutingUseCase' });
   }
 
   execute(note: PublishableNote): PublishableNote {

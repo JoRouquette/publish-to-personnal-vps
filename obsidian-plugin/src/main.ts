@@ -27,6 +27,7 @@ import { LogLevel } from 'core-publishing/src/lib/ports/logger-port';
 import { HttpResponse } from 'core-publishing/src/lib/domain/HttpResponse';
 import { HandleHttpResponseUseCase } from 'core-publishing/src/lib/usecases/handle-http-response.usecase';
 import { HttpResponseStatusMapper } from './lib/utils/HttpResponseStatus.mapper';
+import { DEFAULT_LOGGER_LEVEL } from './lib/constants/DEFAULT_LOGGER_LEVEL';
 
 type PluginLocale = 'en' | 'fr' | 'system';
 
@@ -127,12 +128,9 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
   // Debugging / logging
   // ---------------------------------------------------------------------------
 
-  logger: ConsoleLoggerAdapter = new ConsoleLoggerAdapter(
-    {
-      plugin: 'PublishToPersonalVps',
-    },
-    LogLevel.debug
-  );
+  logger: ConsoleLoggerAdapter = new ConsoleLoggerAdapter({
+    plugin: 'PublishToPersonalVps',
+  });
 
   // ---------------------------------------------------------------------------
   // Cycle de vie du plugin
@@ -144,23 +142,17 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     this.logger.debug('Plugin loading...');
 
     // Handler HTTP commun
-    const httpResponseStatusMapper = new HttpResponseStatusMapper(
-      this.logger.child({ module: 'HttpResponseStatusMapper' })
-    );
+    const httpResponseStatusMapper = new HttpResponseStatusMapper(this.logger);
 
     this.responseHandler = new HandleHttpResponseUseCase(
       (res: RequestUrlResponse) =>
         httpResponseStatusMapper.mapOdsidianResponseToHttpResponse(res),
-      this.logger.child({ module: 'HttpResponseHandler' })
+      this.logger
     );
 
     // Settings UI
     this.addSettingTab(
-      new PublishToPersonalVpsSettingTab(
-        this.app,
-        this,
-        this.logger.child({ module: 'PublishToPersonalVpsSettingTab' })
-      )
+      new PublishToPersonalVpsSettingTab(this.app, this, this.logger)
     );
 
     // Commande principale de publication
@@ -261,12 +253,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     }
 
     // 2. Adaptateurs core (notes)
-    const vault = new ObsidianVaultAdapter(
-      this.app,
-      this.logger.child({
-        module: 'ObsidianVaultAdapter',
-      })
-    );
+    const vault = new ObsidianVaultAdapter(this.app, this.logger);
     const guidGenerator = new GuidGeneratorAdapter();
 
     // Même si aujourd’hui tu n’utilises qu’un seul VPS,
@@ -276,18 +263,14 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     const notesUploader = new NotesUploaderAdapter(
       vps,
       this.responseHandler,
-      this.logger.child({
-        module: 'NotesUploaderAdapter',
-      })
+      this.logger
     );
 
     const publishNotesUsecase = new PublishToSiteUseCase(
       vault,
       notesUploader,
       guidGenerator,
-      this.logger.child({
-        module: 'PublishToSiteUseCase',
-      })
+      this.logger
     );
 
     // 3. Progress pour les notes
@@ -340,28 +323,19 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     }
 
     // 7. Publication des assets
-    const assetsVault = new ObsidianAssetsVaultAdapter(
-      this.app,
-      this.logger.child({
-        module: 'ObsidianAssetsVaultAdapter',
-      })
-    );
+    const assetsVault = new ObsidianAssetsVaultAdapter(this.app, this.logger);
 
     // Adapter HTTP pour AssetsUploaderPort : à implémenter
     const assetsUploader = new AssetsUploaderAdapter(
       vps,
       this.responseHandler,
-      this.logger.child({
-        module: 'AssetsUploaderAdapter',
-      })
+      this.logger
     );
 
     const publishAssetsUsecase = new PublishAssetsToSiteUseCase(
       assetsVault,
       assetsUploader,
-      this.logger.child({
-        module: 'PublishAssetsToSiteUseCase',
-      })
+      this.logger
     );
 
     const assetsProgress = new NoticeProgressAdapter();

@@ -38,7 +38,7 @@ export class ResolveWikilinksUseCase {
   private readonly _logger: LoggerPort;
 
   constructor(logger: LoggerPort) {
-    this._logger = logger.child({ useCase: ResolveWikilinksUseCase.name });
+    this._logger = logger.child({ usecase: 'ResolveWikilinksUseCase' });
   }
 
   execute(

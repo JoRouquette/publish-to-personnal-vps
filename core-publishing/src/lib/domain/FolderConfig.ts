@@ -1,4 +1,3 @@
-import { IgnoreRule } from './IgnoreRule';
 import { SanitizationRules } from './SanitizationRules';
 
 export interface FolderConfig {

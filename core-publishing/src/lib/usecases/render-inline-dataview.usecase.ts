@@ -46,7 +46,7 @@ export class RenderInlineDataviewUseCase {
   private readonly _logger: LoggerPort;
 
   constructor(logger: LoggerPort) {
-    this._logger = logger.child({ useCase: RenderInlineDataviewUseCase.name });
+    this._logger = logger.child({ usecase: 'RenderInlineDataviewUseCase' });
   }
 
   execute(note: PublishableNote): PublishableNote {

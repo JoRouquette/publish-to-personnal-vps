@@ -9,7 +9,7 @@ export class HandleHttpResponseUseCase<T> {
 
   constructor(mapper: Mapper<T>, logger: LoggerPort) {
     this._defaultResponseMapper = mapper;
-    this._logger = logger.child({ useCase: 'HandleHttpResponseUseCase' });
+    this._logger = logger.child({ usecase: 'HandleHttpResponseUseCase' });
     this._logger.debug('HandleHttpResponseUseCase initialized');
   }
 

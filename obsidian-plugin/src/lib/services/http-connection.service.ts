@@ -15,7 +15,7 @@ export async function testVpsConnection(
   handleHttpResponse: HandleHttpResponseUseCase<RequestUrlResponse>,
   logger: LoggerPort
 ): Promise<HttpResponse> {
-  logger = logger.child({ method: 'testVpsConnection' });
+  logger = logger.child({ function: 'testVpsConnection' });
   logger.debug('Testing VPS connection', { vps });
 
   if (!vps.apiKey) {

@@ -36,7 +36,7 @@ export class DetectWikilinksUseCase {
   private readonly _logger: LoggerPort;
 
   constructor(logger: LoggerPort) {
-    this._logger = logger.child({ useCase: DetectWikilinksUseCase.name });
+    this._logger = logger.child({ usecase: 'DetectWikilinksUseCase' });
   }
 
   execute(note: PublishableNote): PublishableNote {
