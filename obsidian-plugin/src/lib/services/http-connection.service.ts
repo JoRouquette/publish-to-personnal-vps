@@ -43,7 +43,7 @@ export async function testVpsConnection(
 
     logger.debug('Received response from VPS ', { res });
 
-    return await handleHttpResponse.handleResponse(res);
+    return await handleHttpResponse.handleResponseAsync({ response: res, url });
   } catch (e) {
     logger.error(`something when wrong in testVpsConnection `, e);
     return {

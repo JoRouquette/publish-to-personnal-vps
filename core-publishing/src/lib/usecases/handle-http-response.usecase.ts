@@ -1,7 +1,17 @@
 import { HttpResponse, HttpStatus } from '../domain/HttpResponse';
 import type { LoggerPort } from '../ports/logger-port';
 
-export type Mapper<T> = (response: T) => Response | Promise<Response>;
+export type Mapper<T> = (
+  response: T,
+  url?: string
+) =>
+  | { response: Response; url?: string }
+  | Promise<{ response: Response; url?: string }>;
+
+export type HandleHttpResponseUseCaseCommand<T> = {
+  response: T;
+  url?: string;
+};
 
 export class HandleHttpResponseUseCase<T> {
   private readonly _logger: LoggerPort;
@@ -13,10 +23,16 @@ export class HandleHttpResponseUseCase<T> {
     this._logger.debug('HandleHttpResponseUseCase initialized');
   }
 
-  async handleResponse(res: T): Promise<HttpResponse> {
+  async handleResponseAsync(
+    command: HandleHttpResponseUseCaseCommand<T>
+  ): Promise<HttpResponse> {
     try {
+      let { response: res, url } = command;
+
       this._logger.debug('Handling HTTP response', { res });
-      const response = await this._defaultResponseMapper(res);
+      const mappingResust = await this._defaultResponseMapper(res, url);
+      let response = mappingResust.response;
+      url = mappingResust.url;
 
       if (
         !response ||

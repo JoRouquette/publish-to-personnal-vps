@@ -1,7 +1,12 @@
 import { LoggerPort } from 'core-publishing/src/lib/ports/logger-port';
 import { RequestUrlResponse } from 'obsidian';
 
-export class HttpResponseStatusMapper {
+export type MappingResust = {
+  response: Response;
+  url?: string;
+};
+
+export class RequestUrlResponseMapper {
   private readonly _logger: LoggerPort;
 
   constructor(logger: LoggerPort) {
@@ -9,9 +14,10 @@ export class HttpResponseStatusMapper {
     this._logger.debug('HttpResponseStatusMapper initialized');
   }
 
-  mapOdsidianResponseToHttpResponse(response: RequestUrlResponse): Response {
+  execute(response: RequestUrlResponse, url?: string): MappingResust {
     this._logger.debug('Mapping Obsidian response to Fetch Response', {
       response,
+      url,
     });
 
     const options: ResponseInit = {
@@ -20,7 +26,10 @@ export class HttpResponseStatusMapper {
       headers: response.headers,
     };
 
-    const responseObj = new Response(response.text, options);
+    const responseObj = {
+      response: new Response(response.text, options),
+      url,
+    };
 
     this._logger.debug('Mapped Response object', { responseObj });
     return responseObj;
@@ -31,14 +40,32 @@ export class HttpResponseStatusMapper {
       200: 'OK',
       201: 'Created',
       202: 'Accepted',
+      203: 'Non-Authoritative Information',
       204: 'No Content',
+      205: 'Reset Content',
+      206: 'Partial Content',
+      300: 'Multiple Choices',
+      301: 'Moved Permanently',
+      302: 'Found',
+      303: 'See Other',
+      304: 'Not Modified',
+      305: 'Use Proxy',
+      307: 'Temporary Redirect',
+      308: 'Permanent Redirect',
       400: 'Bad Request',
       401: 'Unauthorized',
       403: 'Forbidden',
       404: 'Not Found',
+      405: 'Method Not Allowed',
+      409: 'Conflict',
+      413: 'Payload Too Large',
+      414: 'URI Too Long',
+      415: 'Unsupported Media Type',
       500: 'Internal Server Error',
+      501: 'Not Implemented',
       502: 'Bad Gateway',
       503: 'Service Unavailable',
+      504: 'Gateway Timeout',
     };
 
     return statusTexts[status] || 'Unknown Status';

@@ -55,9 +55,11 @@ export class NotesUploaderAdapter implements UploaderPort {
       `Uploading ${apiNotes.length} notes to VPS at ${vps.url}`
     );
 
+    const url = vps.url.replace(/\/$/, '') + '/api/upload';
+
     try {
       const response = await requestUrl({
-        url: vps.url.replace(/\/$/, '') + '/api/upload',
+        url,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -67,7 +69,10 @@ export class NotesUploaderAdapter implements UploaderPort {
         throw: false,
       });
 
-      const result = await this._handleResponse.handleResponse(response);
+      const result = await this._handleResponse.handleResponseAsync({
+        response,
+        url,
+      });
 
       if (result.isError) {
         this._logger.error(

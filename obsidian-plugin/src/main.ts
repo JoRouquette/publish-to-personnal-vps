@@ -11,165 +11,116 @@ import { ObsidianVaultAdapter } from './lib/obsidian-vault.adapter';
 import { testVpsConnection } from './lib/services/http-connection.service';
 import { PublishToPersonalVpsSettingTab } from './lib/setting-tab';
 
-import { PublishToSiteUseCase } from 'core-publishing/src';
+import { PublishToSiteUseCase } from '../../core-publishing/src';
 import {
   extractNotesWithAssets,
   type NoteWithAssets,
-} from 'core-publishing/src/lib/domain/NoteWithAssets';
-import type { PublishableNote } from 'core-publishing/src/lib/domain/PublishableNote';
-import { PublishAssetsToSiteUseCase } from 'core-publishing/src/lib/usecases/publish-assets-to-site.usecase';
+} from '../../core-publishing/src/lib/domain/NoteWithAssets';
+import type { PublishableNote } from '../../core-publishing/src/lib/domain/PublishableNote';
+import { PublishAssetsToSiteUseCase } from '../../core-publishing/src/lib/usecases/publish-assets-to-site.usecase';
 import { ObsidianAssetsVaultAdapter } from './lib/obsidian-assets-vault.adapter';
 
+import { HttpResponse } from '../../core-publishing/src/lib/domain/HttpResponse';
+import { HandleHttpResponseUseCase } from '../../core-publishing/src/lib/usecases/handle-http-response.usecase';
 import { AssetsUploaderAdapter } from './lib/assets-uploader.adapter';
-import { NotesUploaderAdapter } from './lib/notes-uploader.adapter';
 import { ConsoleLoggerAdapter } from './lib/console-logger.adapter';
-import { LogLevel } from 'core-publishing/src/lib/ports/logger-port';
-import { HttpResponse } from 'core-publishing/src/lib/domain/HttpResponse';
-import { HandleHttpResponseUseCase } from 'core-publishing/src/lib/usecases/handle-http-response.usecase';
-import { HttpResponseStatusMapper } from './lib/utils/HttpResponseStatus.mapper';
-import { DEFAULT_LOGGER_LEVEL } from './lib/constants/DEFAULT_LOGGER_LEVEL';
+import { NotesUploaderAdapter } from './lib/notes-uploader.adapter';
+import { RequestUrlResponseMapper } from './lib/utils/HttpResponseStatus.mapper';
+
+// -----------------------------------------------------------------------------
+// Types & Constants
+// -----------------------------------------------------------------------------
 
 type PluginLocale = 'en' | 'fr' | 'system';
 
-/**
- * Settings internes du plugin Obsidian.
- *
- * - PublishPluginSettings = configuration "core" (consommée par la lib).
- * - I18nSettings = langue d'interface.
- * - Ajouts plugin-only :
- *   - locale : comportement de langue (system / fr / en)
- *   - assetsFolder : dossier global d'assets dans le vault
- *   - enableAssetsVaultFallback : fallback de recherche des assets dans tout le vault
- */
 type PluginSettings = PublishPluginSettings &
   I18nSettings & {
     locale?: PluginLocale;
-
-    // --- Vault global settings ---
     assetsFolder: string;
     enableAssetsVaultFallback: boolean;
   };
 
-/**
- * Defaults pour un vault fraîchement configuré.
- */
 const DEFAULT_SETTINGS: PluginSettings = {
-  // core-publishing
   vpsConfigs: [],
   folders: [],
   ignoreRules: [],
-
-  // i18n
   locale: 'system',
-
-  // vault / assets
   assetsFolder: 'assets',
   enableAssetsVaultFallback: true,
 };
 
-// Clone profond simple pour des objets de settings "value objects"
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
+
 function cloneSettings(settings: PluginSettings): PluginSettings {
   return JSON.parse(JSON.stringify(settings));
 }
 
-/**
- * Applique le chiffrement faible sur les API keys
- * avant persistence sur disque.
- */
 function withEncryptedApiKeys(settings: PluginSettings): PluginSettings {
   const cloned = cloneSettings(settings);
-
   if (Array.isArray(cloned.vpsConfigs)) {
     cloned.vpsConfigs = cloned.vpsConfigs.map((vps) => ({
       ...vps,
       apiKey: encryptApiKey(vps.apiKey),
     }));
   }
-
   return cloned;
 }
 
-/**
- * Applique le déchiffrement faible sur les API keys
- * après chargement depuis le disque.
- */
 function withDecryptedApiKeys(settings: PluginSettings): PluginSettings {
   const cloned = cloneSettings(settings);
-
   if (Array.isArray(cloned.vpsConfigs)) {
     cloned.vpsConfigs = cloned.vpsConfigs.map((vps) => ({
       ...vps,
       apiKey: decryptApiKey(vps.apiKey),
     }));
   }
-
   return cloned;
 }
 
-/**
- * Construit la vue "core" des settings, consommée par la lib.
- * On isole volontairement ce qui est pertinent pour PublishToSiteUseCase.
- */
 function buildCoreSettings(settings: PluginSettings): PublishPluginSettings {
   const { vpsConfigs, folders, ignoreRules } = settings;
-
-  return {
-    vpsConfigs,
-    folders,
-    ignoreRules,
-  };
+  return { vpsConfigs, folders, ignoreRules };
 }
+
+// -----------------------------------------------------------------------------
+// Main Plugin Class
+// -----------------------------------------------------------------------------
 
 export default class PublishToPersonalVpsPlugin extends Plugin {
   settings!: PluginSettings;
   responseHandler!: HandleHttpResponseUseCase<RequestUrlResponse>;
+  logger = new ConsoleLoggerAdapter({ plugin: 'PublishToPersonalVps' });
 
-  // ---------------------------------------------------------------------------
-  // Debugging / logging
-  // ---------------------------------------------------------------------------
-
-  logger: ConsoleLoggerAdapter = new ConsoleLoggerAdapter({
-    plugin: 'PublishToPersonalVps',
-  });
-
-  // ---------------------------------------------------------------------------
-  // Cycle de vie du plugin
-  // ---------------------------------------------------------------------------
   async onload() {
     await this.loadSettings();
     const { t } = getTranslations(this.app, this.settings);
 
     this.logger.debug('Plugin loading...');
 
-    // Handler HTTP commun
-    const httpResponseStatusMapper = new HttpResponseStatusMapper(this.logger);
-
-    this.responseHandler = new HandleHttpResponseUseCase(
+    this.responseHandler = new HandleHttpResponseUseCase<RequestUrlResponse>(
       (res: RequestUrlResponse) =>
-        httpResponseStatusMapper.mapOdsidianResponseToHttpResponse(res),
+        new RequestUrlResponseMapper(this.logger).execute(res),
       this.logger
     );
 
-    // Settings UI
     this.addSettingTab(
       new PublishToPersonalVpsSettingTab(this.app, this, this.logger)
     );
 
-    // Commande principale de publication
     this.addCommand({
       id: 'publish-to-personal-vps',
       name: t.plugin.commandPublish,
-      callback: async () => this.publishToSite(),
+      callback: async () => this.publishToSiteAsync(),
     });
 
-    // Test de connexion au VPS
     this.addCommand({
       id: 'test-vps-connection',
       name: t.plugin.commandTestConnection,
       callback: async () => this.testConnection(),
     });
 
-    // Raccourci pour ouvrir les settings du plugin
     this.addCommand({
       id: 'open-vps-settings',
       name: t.plugin.commandOpenSettings,
@@ -181,10 +132,9 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
       },
     });
 
-    // Icône de ribbon
     this.addRibbonIcon('rocket', t.plugin.commandPublish, async () => {
       try {
-        await this.publishToSite();
+        await this.publishToSiteAsync();
       } catch (e) {
         console.error('Publish failed from ribbon', e);
         new Notice(t.plugin.publishError);
@@ -195,19 +145,15 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
   }
 
   // ---------------------------------------------------------------------------
-  // Chargement / sauvegarde des settings
+  // Settings Management
   // ---------------------------------------------------------------------------
   async loadSettings() {
-    // Settings Obsidian (stockés via saveData)
     const internalRaw = (await this.loadData()) ?? {};
-
-    // Snapshot JSON "settings.json" dans le dossier du plugin
     let snapshotRaw: any = null;
     try {
       const adapter: any = this.app.vault.adapter;
       const pluginDir = `.obsidian/plugins/${this.manifest.id}`;
       const filePath = `${pluginDir}/settings.json`;
-
       if (await adapter.exists(filePath)) {
         const content = await adapter.read(filePath);
         snapshotRaw = JSON.parse(content);
@@ -215,15 +161,11 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     } catch (e) {
       this.logger.error('Failed to load snapshot settings', e);
     }
-
     const merged: PluginSettings = {
       ...DEFAULT_SETTINGS,
-
-      // ordre de merge : defaults < internal < snapshot
       ...(internalRaw as Partial<PluginSettings>),
       ...(snapshotRaw as Partial<PluginSettings>),
     };
-
     this.settings = withDecryptedApiKeys(merged);
   }
 
@@ -233,50 +175,38 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
   }
 
   // ---------------------------------------------------------------------------
-  // Publication : notes + assets
+  // Publishing Logic
   // ---------------------------------------------------------------------------
-  async publishToSite() {
+  async publishToSiteAsync() {
     const settings = this.settings;
     const { t } = getTranslations(this.app, this.settings);
 
-    // 1. Validation basique : au moins un VPS et un dossier
     if (!settings.vpsConfigs || settings.vpsConfigs.length === 0) {
       this.logger.error('No VPS config defined');
       new Notice(t.settings.errors?.missingVpsConfig ?? 'No VPS configured');
       return;
     }
-
     if (!settings.folders || settings.folders.length === 0) {
       this.logger.warn('No folders configured');
       new Notice('⚠️ No folders configured for publishing.');
       return;
     }
 
-    // 2. Adaptateurs core (notes)
+    const vps = settings.vpsConfigs[0];
     const vault = new ObsidianVaultAdapter(this.app, this.logger);
     const guidGenerator = new GuidGeneratorAdapter();
-
-    // Même si aujourd’hui tu n’utilises qu’un seul VPS,
-    // PublishToSiteUseCase sait déjà gérer plusieurs vpsConfigs.
-    // HttpUploaderAdapter, lui, se base sur vpsConfig à la construction.
-    const vps = settings.vpsConfigs[0];
     const notesUploader = new NotesUploaderAdapter(
       vps,
       this.responseHandler,
       this.logger
     );
-
     const publishNotesUsecase = new PublishToSiteUseCase(
       vault,
       notesUploader,
       guidGenerator,
       this.logger
     );
-
-    // 3. Progress pour les notes
     const notesProgress = new NoticeProgressAdapter();
-
-    // 4. Settings "core" pour la partie notes
     const coreSettings = buildCoreSettings(settings);
 
     const result = await publishNotesUsecase.execute(
@@ -284,7 +214,6 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
       notesProgress
     );
 
-    // 5. Gestion des cas d'erreur / config
     if (result.type === 'noConfig') {
       new Notice('⚠️ No folders or VPS configured.');
       return;
@@ -302,42 +231,32 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
       return;
     }
 
-    // À partir d’ici : succès côté notes
     const publishedNotesCount = result.publishedCount;
     const notes: PublishableNote[] = result.notes ?? [];
-
     if (publishedNotesCount === 0) {
       new Notice('✅ Nothing to publish (0 note).');
       return;
     }
 
-    // 6. Extraction des notes qui ont effectivement des assets
     const notesWithAssets: NoteWithAssets[] = extractNotesWithAssets(notes);
-
     if (notesWithAssets.length === 0) {
-      // Aucun asset à traiter, on notifie juste le succès des notes
       new Notice(
         `✅ Published ${publishedNotesCount} note(s). No assets to publish.`
       );
       return;
     }
 
-    // 7. Publication des assets
     const assetsVault = new ObsidianAssetsVaultAdapter(this.app, this.logger);
-
-    // Adapter HTTP pour AssetsUploaderPort : à implémenter
     const assetsUploader = new AssetsUploaderAdapter(
       vps,
       this.responseHandler,
       this.logger
     );
-
     const publishAssetsUsecase = new PublishAssetsToSiteUseCase(
       assetsVault,
       assetsUploader,
       this.logger
     );
-
     const assetsProgress = new NoticeProgressAdapter();
 
     const assetsResult = await publishAssetsUsecase.execute({
@@ -347,25 +266,20 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
       progress: assetsProgress,
     });
 
-    // 8. Notification finale selon le résultat des assets
     switch (assetsResult.type) {
-      case 'noAssets': {
-        // Normalement déjà filtré, mais on garde le cas pour être robuste.
+      case 'noAssets':
         new Notice(
           `✅ Published ${publishedNotesCount} note(s). No assets to publish.`
         );
         break;
-      }
-      case 'error': {
+      case 'error':
         this.logger.error('Error while publishing assets:', assetsResult.error);
         new Notice(
           `✅ Published ${publishedNotesCount} note(s), but assets publication failed (see console).`
         );
         break;
-      }
       case 'success': {
         const { publishedAssetsCount, failures } = assetsResult;
-
         if (failures.length > 0) {
           this.logger.warn('Some assets failed to publish:', failures);
           new Notice(
@@ -382,7 +296,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
   }
 
   // ---------------------------------------------------------------------------
-  // Test de connexion VPS
+  // VPS Connection Test
   // ---------------------------------------------------------------------------
   async testConnection(): Promise<void> {
     const { t } = getTranslations(this.app, this.settings);
@@ -395,7 +309,6 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     }
 
     const vps = settings.vpsConfigs[0];
-
     const res: HttpResponse = await testVpsConnection(
       vps,
       this.responseHandler,
@@ -405,11 +318,9 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
     if (!res.isError) {
       this.logger.info('VPS connection test succeeded');
       this.logger.info(`Test connection message: ${res.text}`);
-
       new Notice(t.settings.testConnection.success);
     } else {
       this.logger.error('VPS connection test failed: ', res.error);
-
       new Notice(
         `${t.settings.testConnection.failed} ${
           res.error instanceof Error

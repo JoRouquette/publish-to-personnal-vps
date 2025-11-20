@@ -71,7 +71,10 @@ export class AssetsUploaderAdapter implements UploaderPort {
         throw: false,
       });
 
-      const result = await this._handleResponse.handleResponse(response);
+      const result = await this._handleResponse.handleResponseAsync({
+        response,
+        url,
+      });
 
       this._logger.info('Assets upload completed');
 
