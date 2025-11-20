@@ -1,7 +1,7 @@
 import { HttpResponse } from 'core-publishing/src/lib/domain/HttpResponse';
 import type { VpsConfig } from 'core-publishing/src/lib/domain/VpsConfig';
 import { type LoggerPort } from 'core-publishing/src/lib/ports/logger-port';
-import { HandleHttpResponseUseCase } from 'core-publishing/src/lib/usecases/handle-http-response.usecase';
+import { HttpResponseHandler } from 'core-publishing/src/lib/handler/http-response.handler';
 import { requestUrl, RequestUrlResponse } from 'obsidian';
 
 function normalizeBaseUrl(url: string): string {
@@ -12,7 +12,7 @@ function normalizeBaseUrl(url: string): string {
 
 export async function testVpsConnection(
   vps: VpsConfig,
-  handleHttpResponse: HandleHttpResponseUseCase<RequestUrlResponse>,
+  handleHttpResponse: HttpResponseHandler<RequestUrlResponse>,
   logger: LoggerPort
 ): Promise<HttpResponse> {
   logger = logger.child({ function: 'testVpsConnection' });

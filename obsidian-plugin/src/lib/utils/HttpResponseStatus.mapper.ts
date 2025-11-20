@@ -1,12 +1,13 @@
+import {
+  ApiRequestMapper,
+  MappingResult,
+} from 'core-publishing/src/lib/domain/Mapper';
 import { LoggerPort } from 'core-publishing/src/lib/ports/logger-port';
 import { RequestUrlResponse } from 'obsidian';
 
-export type MappingResust = {
-  response: Response;
-  url?: string;
-};
-
-export class RequestUrlResponseMapper {
+export class RequestUrlResponseMapper
+  implements ApiRequestMapper<RequestUrlResponse>
+{
   private readonly _logger: LoggerPort;
 
   constructor(logger: LoggerPort) {
@@ -14,7 +15,7 @@ export class RequestUrlResponseMapper {
     this._logger.debug('HttpResponseStatusMapper initialized');
   }
 
-  execute(response: RequestUrlResponse, url?: string): MappingResust {
+  execute(response: RequestUrlResponse, url?: string): MappingResult {
     this._logger.debug('Mapping Obsidian response to Fetch Response', {
       response,
       url,

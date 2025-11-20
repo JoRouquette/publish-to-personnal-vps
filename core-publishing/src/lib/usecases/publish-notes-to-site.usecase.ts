@@ -3,7 +3,7 @@ import type { ContentSanitizer } from '../domain/ContentSanitizer.js';
 import type { FolderConfig } from '../domain/FolderConfig.js';
 import type { PublishableNote } from '../domain/PublishableNote.js';
 import type { PublishPluginSettings } from '../domain/PublishPluginSettings.js';
-import { DefaultContentSanitizer } from '../domain/services/default-content-sanitizer.js';
+import { DefaultContentSanitizer } from '../services/default-content-sanitizer.js';
 import type { UploaderPort } from '../domain/uploader-port.js';
 import type { GuidGeneratorPort } from '../ports/guid-generator-port.js';
 import { LogLevel, type LoggerPort } from '../ports/logger-port.js';

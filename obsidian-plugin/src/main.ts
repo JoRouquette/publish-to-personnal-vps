@@ -21,7 +21,7 @@ import { PublishAssetsToSiteUseCase } from '../../core-publishing/src/lib/usecas
 import { ObsidianAssetsVaultAdapter } from './lib/obsidian-assets-vault.adapter';
 
 import { HttpResponse } from '../../core-publishing/src/lib/domain/HttpResponse';
-import { HandleHttpResponseUseCase } from '../../core-publishing/src/lib/usecases/handle-http-response.usecase';
+import { HttpResponseHandler } from '../../core-publishing/src/lib/handler/http-response.handler';
 import { AssetsUploaderAdapter } from './lib/assets-uploader.adapter';
 import { ConsoleLoggerAdapter } from './lib/console-logger.adapter';
 import { NotesUploaderAdapter } from './lib/notes-uploader.adapter';
@@ -90,7 +90,7 @@ function buildCoreSettings(settings: PluginSettings): PublishPluginSettings {
 
 export default class PublishToPersonalVpsPlugin extends Plugin {
   settings!: PluginSettings;
-  responseHandler!: HandleHttpResponseUseCase<RequestUrlResponse>;
+  responseHandler!: HttpResponseHandler<RequestUrlResponse>;
   logger = new ConsoleLoggerAdapter({ plugin: 'PublishToPersonalVps' });
 
   async onload() {
@@ -99,7 +99,7 @@ export default class PublishToPersonalVpsPlugin extends Plugin {
 
     this.logger.debug('Plugin loading...');
 
-    this.responseHandler = new HandleHttpResponseUseCase<RequestUrlResponse>(
+    this.responseHandler = new HttpResponseHandler<RequestUrlResponse>(
       (res: RequestUrlResponse) =>
         new RequestUrlResponseMapper(this.logger).execute(res),
       this.logger

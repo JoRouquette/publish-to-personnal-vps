@@ -1,8 +1,7 @@
-// core-publishing/src/lib/domain/services/default-content-sanitizer.ts
-import type { ContentSanitizer } from '../ContentSanitizer.js';
-import type { PublishableNote } from '../PublishableNote.js';
-import type { SanitizationRules } from '../SanitizationRules.js';
-import { SanitizeMarkdownUseCase } from '../../usecases/sanitize-markdown.usecase.js';
+import { PublishableNote } from '../domain/PublishableNote';
+import { ContentSanitizer } from '../domain/ContentSanitizer';
+import { SanitizationRules } from '../domain/SanitizationRules';
+import { SanitizeMarkdownUseCase } from '../usecases/sanitize-markdown.usecase';
 
 export class DefaultContentSanitizer implements ContentSanitizer {
   private readonly sanitizeMarkdown = new SanitizeMarkdownUseCase();

@@ -1,24 +1,18 @@
 import { HttpResponse, HttpStatus } from '../domain/HttpResponse';
+import { Mapper, Handler } from '../domain/Mapper';
 import type { LoggerPort } from '../ports/logger-port';
-
-export type Mapper<T> = (
-  response: T,
-  url?: string
-) =>
-  | { response: Response; url?: string }
-  | Promise<{ response: Response; url?: string }>;
 
 export type HandleHttpResponseUseCaseCommand<T> = {
   response: T;
   url?: string;
 };
 
-export class HandleHttpResponseUseCase<T> {
+export class HttpResponseHandler<T> implements Handler<T> {
   private readonly _logger: LoggerPort;
-  private readonly _defaultResponseMapper: Mapper<T>;
+  defaultMapper: Mapper<T>;
 
   constructor(mapper: Mapper<T>, logger: LoggerPort) {
-    this._defaultResponseMapper = mapper;
+    this.defaultMapper = mapper;
     this._logger = logger.child({ usecase: 'HandleHttpResponseUseCase' });
     this._logger.debug('HandleHttpResponseUseCase initialized');
   }
@@ -30,16 +24,16 @@ export class HandleHttpResponseUseCase<T> {
       let { response: res, url } = command;
 
       this._logger.debug('Handling HTTP response', { res });
-      const mappingResust = await this._defaultResponseMapper(res, url);
-      let response = mappingResust.response;
-      url = mappingResust.url;
+      const mappingResult = await this.defaultMapper(res, url);
+      let response = mappingResult.response;
+      url = mappingResult.url;
 
       if (
         !response ||
         typeof response !== 'object' ||
         typeof response.text !== 'function'
       ) {
-        this._logger.error('Mapper did not return a valid Response object', {
+        this._logger.debug('Mapper did not return a valid Response object', {
           response,
         });
         return {
@@ -61,7 +55,7 @@ export class HandleHttpResponseUseCase<T> {
           text,
         };
       } else {
-        this._logger.error(
+        this._logger.debug(
           `HTTP request failed ${response.status}`,
           text,
           response
@@ -80,7 +74,7 @@ export class HandleHttpResponseUseCase<T> {
         };
       }
     } catch (error) {
-      this._logger.error('Error handling HTTP response ', error);
+      this._logger.debug('Error handling HTTP response ', error);
       return {
         isError: true,
         error: error instanceof Error ? error : new Error(String(error)),
